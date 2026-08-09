@@ -16,6 +16,7 @@ const APP_NAME = "Codex Pocket";
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC_DIR = path.join(PROJECT_ROOT, "public");
 const RUNTIME_DIR = path.join(PROJECT_ROOT, ".codex-pocket");
+const ENV_FILE = path.join(PROJECT_ROOT, ".env");
 const THREADS_FILE = path.join(RUNTIME_DIR, "threads.json");
 const DEVICES_FILE = path.join(RUNTIME_DIR, "devices.json");
 const PORT = parsePort(process.env.PORT ?? "8787");
@@ -41,13 +42,9 @@ if (!["127.0.0.1", "localhost", "::1"].includes(HOST)) {
 const publicUrl = normalizePublicUrl(process.env.PUBLIC_URL, HOST, PORT);
 const publicOrigin = publicUrl.origin;
 const allowedOrigins = new Set([...LOCAL_ORIGINS, publicOrigin]);
-const allowedRoots = await loadAllowedRoots();
-const projects = allowedRoots.map((cwd) => ({
-  id: shortHash(cwd),
-  name: path.basename(cwd) || cwd,
-  cwd,
-}));
-const projectById = new Map(projects.map((project) => [project.id, project]));
+let allowedRoots = await loadAllowedRoots();
+let projects = buildProjects(allowedRoots);
+let projectById = new Map(projects.map((project) => [project.id, project]));
 let registry;
 let deviceRegistry;
 
@@ -190,6 +187,17 @@ app.get("/api/models", requireSession, asyncHandler(async (req, res) => {
 app.get("/api/projects", requireSession, (req, res) => {
   res.json({ projects: projects.map(publicProject) });
 });
+
+app.get("/api/admin/projects", requireLocalAdmin, (req, res) => {
+  res.json({ projects: projects.map(publicProject) });
+});
+
+app.post("/api/admin/projects", requireLocalAdmin, asyncHandler(async (req, res) => {
+  const roots = await validateProjectRoots(req.body?.roots);
+  await persistAllowedRoots(roots);
+  applyAllowedRoots(roots);
+  res.json({ ok: true, projects: projects.map(publicProject) });
+}));
 
 app.get("/api/threads", requireSession, asyncHandler(async (req, res) => {
   await syncCodexThreads();
@@ -1106,6 +1114,77 @@ async function loadAllowedRoots() {
   return [...new Set(roots)];
 }
 
+function buildProjects(roots) {
+  return roots.map((cwd) => ({
+    id: shortHash(cwd),
+    name: path.basename(cwd) || cwd,
+    cwd,
+  }));
+}
+
+async function validateProjectRoots(rawRoots) {
+  if (!Array.isArray(rawRoots) || rawRoots.length === 0 || rawRoots.length > 20) {
+    const error = new Error("Choose between one and twenty project directories.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const roots = [];
+  for (const rawRoot of rawRoots) {
+    if (typeof rawRoot !== "string" || rawRoot.length > 500 || !path.isAbsolute(rawRoot)) {
+      const error = new Error("Project paths must be absolute paths.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const resolved = await fs.realpath(rawRoot).catch(() => null);
+    if (!resolved) {
+      const error = new Error(`Project directory does not exist: ${rawRoot}`);
+      error.statusCode = 400;
+      throw error;
+    }
+    const details = await fs.stat(resolved);
+    if (!details.isDirectory()) {
+      const error = new Error(`Project path is not a directory: ${resolved}`);
+      error.statusCode = 400;
+      throw error;
+    }
+    if (resolved === path.parse(resolved).root) {
+      const error = new Error("The filesystem root cannot be an approved project.");
+      error.statusCode = 400;
+      throw error;
+    }
+    roots.push(resolved);
+  }
+  return [...new Set(roots)];
+}
+
+function applyAllowedRoots(roots) {
+  allowedRoots = roots;
+  projects = buildProjects(roots);
+  projectById = new Map(projects.map((project) => [project.id, project]));
+  registry?.setRoots(new Set(roots));
+}
+
+async function persistAllowedRoots(roots) {
+  let body = "";
+  try {
+    body = await fs.readFile(ENV_FILE, "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  const encoded = roots.map(escapeEnvValue).join(path.delimiter);
+  const line = `CODEX_POCKET_ROOTS="${encoded}"`;
+  if (/^CODEX_POCKET_ROOTS=.*$/m.test(body)) body = body.replace(/^CODEX_POCKET_ROOTS=.*$/m, line);
+  else body = `${body.trimEnd()}\n${line}\n`;
+  const temp = `${ENV_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  await fs.writeFile(temp, body, { encoding: "utf8", mode: 0o600 });
+  await fs.rename(temp, ENV_FILE);
+  await fs.chmod(ENV_FILE, 0o600);
+}
+
+function escapeEnvValue(value) {
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("$", "\\$").replaceAll("`", "\\`");
+}
+
 function readCookie(header, name) {
   if (typeof header !== "string") return null;
   for (const part of header.split(";")) {
@@ -1248,15 +1327,23 @@ class ThreadRegistry {
   }
 
   get(id) {
-    return this.records.get(id) ?? null;
+    const record = this.records.get(id) ?? null;
+    return record && this.isAllowedCwd(record.cwd) ? record : null;
   }
 
   has(id) {
-    return this.records.has(id);
+    return Boolean(this.get(id));
   }
 
   list() {
-    return [...this.records.values()].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, MAX_THREADS);
+    return [...this.records.values()]
+      .filter((record) => this.isAllowedCwd(record.cwd))
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .slice(0, MAX_THREADS);
+  }
+
+  setRoots(roots) {
+    this.roots = roots;
   }
 
   async upsert(record) {

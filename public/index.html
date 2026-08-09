@@ -43,6 +43,7 @@
           </div>
           <div class="topbar-actions">
             <button id="pairButton" class="button secondary compact" type="button">手机配对</button>
+            <button id="projectButton" class="button secondary compact" type="button">项目管理</button>
             <button id="sessionButton" class="button secondary compact" type="button">连接管理</button>
             <button id="logoutButton" class="icon-button" type="button" aria-label="断开此浏览器">×</button>
           </div>
@@ -129,6 +130,32 @@
         <img id="workspacePairQr" class="workspace-pair-qr" alt="手机配对二维码" />
         <p id="workspacePairCode" class="workspace-pair-code">正在生成配对码…</p>
         <p id="workspacePairNotice" class="muted"></p>
+      </div>
+    </section>
+
+    <section id="projectDialog" class="pair-dialog" hidden aria-live="polite">
+      <div class="sheet-backdrop" data-close-projects></div>
+      <div class="session-dialog-content" role="dialog" aria-modal="true" aria-labelledby="projectDialogTitle">
+        <div class="pair-dialog-header">
+          <div>
+            <p class="eyebrow">本机设置</p>
+            <h2 id="projectDialogTitle">项目管理</h2>
+          </div>
+          <button class="icon-button" type="button" aria-label="关闭项目管理" data-close-projects>×</button>
+        </div>
+        <p class="muted">只允许访问下面列出的目录及其子目录。保存后手机会同步这些项目和历史任务。</p>
+        <form id="projectForm" class="project-form">
+          <label class="field-label" for="projectPathInput">添加项目目录</label>
+          <div class="project-add-row">
+            <input id="projectPathInput" class="project-path-input" placeholder="/Users/你的用户名/项目" autocomplete="off" />
+            <button class="button secondary compact" type="submit">添加</button>
+          </div>
+          <p id="projectError" class="form-error" role="alert"></p>
+        </form>
+        <div id="projectRootList" class="project-root-list" aria-live="polite"></div>
+        <div class="project-dialog-actions">
+          <button id="saveProjectsButton" class="button primary" type="button">保存项目设置</button>
+        </div>
       </div>
     </section>
 

@@ -1,6 +1,7 @@
 const state = {
   session: null,
   projects: [],
+  projectRoots: [],
   models: [],
   model: "",
   effort: "",
@@ -31,7 +32,14 @@ const el = {
   hostName: document.querySelector("#hostName"),
   logoutButton: document.querySelector("#logoutButton"),
   pairButton: document.querySelector("#pairButton"),
+  projectButton: document.querySelector("#projectButton"),
   sessionButton: document.querySelector("#sessionButton"),
+  projectDialog: document.querySelector("#projectDialog"),
+  projectForm: document.querySelector("#projectForm"),
+  projectPathInput: document.querySelector("#projectPathInput"),
+  projectError: document.querySelector("#projectError"),
+  projectRootList: document.querySelector("#projectRootList"),
+  saveProjectsButton: document.querySelector("#saveProjectsButton"),
   sessionDialog: document.querySelector("#sessionDialog"),
   sessionCount: document.querySelector("#sessionCount"),
   sessionList: document.querySelector("#sessionList"),
@@ -73,6 +81,7 @@ const el = {
 void boot();
 
 el.pairButton.hidden = !isLocalBrowser();
+el.projectButton.hidden = !isLocalBrowser();
 el.sessionButton.hidden = el.pairButton.hidden;
 
 el.pairForm.addEventListener("submit", async (event) => {
@@ -116,6 +125,18 @@ for (const closeButton of el.pairDialog.querySelectorAll("[data-close-pair]")) {
     el.pairDialog.hidden = true;
   });
 }
+
+el.projectButton.addEventListener("click", () => void showProjectDialog());
+for (const closeButton of el.projectDialog.querySelectorAll("[data-close-projects]")) {
+  closeButton.addEventListener("click", () => {
+    el.projectDialog.hidden = true;
+  });
+}
+el.projectForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  addProjectRoot();
+});
+el.saveProjectsButton.addEventListener("click", () => void saveProjectRoots());
 
 el.sessionButton.addEventListener("click", () => void showSessionDialog());
 for (const closeButton of el.sessionDialog.querySelectorAll("[data-close-sessions]")) {
@@ -255,6 +276,82 @@ async function showPairDialog() {
   }
 }
 
+async function showProjectDialog() {
+  el.projectDialog.hidden = false;
+  el.projectError.textContent = "";
+  el.projectPathInput.value = "";
+  try {
+    const data = await request("/api/admin/projects");
+    state.projectRoots = (data.projects ?? []).map((project) => project.cwd);
+    renderProjectRoots();
+  } catch (error) {
+    el.projectError.textContent = error.message;
+  }
+}
+
+function renderProjectRoots() {
+  el.projectRootList.replaceChildren();
+  for (const root of state.projectRoots) {
+    const row = document.createElement("div");
+    row.className = "project-root-row";
+    const pathText = document.createElement("code");
+    pathText.textContent = root;
+    const remove = document.createElement("button");
+    remove.className = "button secondary compact";
+    remove.type = "button";
+    remove.textContent = "移除";
+    remove.disabled = state.projectRoots.length <= 1;
+    remove.addEventListener("click", () => {
+      state.projectRoots = state.projectRoots.filter((entry) => entry !== root);
+      renderProjectRoots();
+    });
+    row.append(pathText, remove);
+    el.projectRootList.append(row);
+  }
+  if (state.projectRoots.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "至少保留一个项目目录。";
+    el.projectRootList.append(empty);
+  }
+}
+
+function addProjectRoot() {
+  const root = el.projectPathInput.value.trim();
+  el.projectError.textContent = "";
+  if (!root) return;
+  if (!root.startsWith("/")) {
+    el.projectError.textContent = "请输入绝对路径，例如 /Users/你的用户名/项目。";
+    return;
+  }
+  if (state.projectRoots.includes(root)) {
+    el.projectError.textContent = "这个目录已经在允许列表中。";
+    return;
+  }
+  state.projectRoots.push(root);
+  el.projectPathInput.value = "";
+  renderProjectRoots();
+}
+
+async function saveProjectRoots() {
+  el.projectError.textContent = "";
+  try {
+    el.saveProjectsButton.disabled = true;
+    const data = await request("/api/admin/projects", {
+      method: "POST",
+      body: { roots: state.projectRoots },
+    });
+    state.projectRoots = (data.projects ?? []).map((project) => project.cwd);
+    el.projectDialog.hidden = true;
+    await loadWorkspace();
+    showToast("项目设置已保存");
+  } catch (error) {
+    el.projectError.textContent = error.message;
+  } finally {
+    el.saveProjectsButton.disabled = false;
+  }
+}
+
 async function showSessionDialog() {
   el.sessionDialog.hidden = false;
   el.sessionList.replaceChildren();
@@ -341,6 +438,7 @@ async function loadWorkspace() {
   const session = await request("/api/session");
   state.session = session;
   state.projects = session.projects ?? [];
+  state.projectRoots = state.projects.map((project) => project.cwd);
   state.approvals = session.approvals ?? [];
   const modelData = await request("/api/models").catch(() => ({ models: [] }));
   state.models = modelData.models ?? [];
@@ -356,6 +454,7 @@ async function loadWorkspace() {
 function resetToPairing() {
   state.session = null;
   state.projects = [];
+  state.projectRoots = [];
   state.models = [];
   state.model = "";
   state.effort = "";

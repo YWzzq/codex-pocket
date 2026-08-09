@@ -724,6 +724,57 @@ textarea {
   display: grid;
 }
 
+.project-form {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.project-add-row {
+  display: flex;
+  gap: 8px;
+}
+
+.project-path-input {
+  min-width: 0;
+  flex: 1;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.project-root-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.project-root-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.project-root-row code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+}
+
 .session-row {
   display: flex;
   align-items: center;
