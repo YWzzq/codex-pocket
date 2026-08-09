@@ -618,7 +618,7 @@ function renderProjects() {
 function renderTaskList() {
   const hasSelection = Boolean(selectedThread());
   el.taskList.hidden = hasSelection;
-  el.taskHeading.textContent = hasSelection ? "任务详情" : "所有任务";
+  el.taskHeading.textContent = hasSelection ? "任务详情" : "项目任务";
   if (hasSelection) return;
 
   el.taskList.replaceChildren();
@@ -629,29 +629,71 @@ function renderTaskList() {
     el.taskList.append(empty);
     return;
   }
-  for (const thread of state.threads) {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "task-row";
-    row.addEventListener("click", () => void selectThread(thread.id));
 
-    const dot = document.createElement("span");
-    dot.className = `status-dot ${dotClass(thread.status)}`;
-    const copy = document.createElement("span");
-    copy.className = "task-row-copy";
-    const title = document.createElement("span");
-    title.className = "task-row-title";
-    title.textContent = thread.title;
-    const meta = document.createElement("span");
-    meta.className = "task-row-meta";
-    meta.textContent = `${projectName(thread.projectId)} · ${relativeTime(thread.updatedAt)}`;
-    copy.append(title, meta);
-    const status = document.createElement("span");
-    status.className = `status-label ${thread.status}`;
-    status.textContent = statusLabel(thread.status);
-    row.append(dot, copy, status);
-    el.taskList.append(row);
+  const groups = new Map();
+  for (const thread of state.threads) {
+    const projectId = thread.projectId ?? "__unknown__";
+    const group = groups.get(projectId) ?? { projectId, threads: [] };
+    group.threads.push(thread);
+    groups.set(projectId, group);
   }
+
+  const sortedGroups = [...groups.values()].sort((a, b) => {
+    const latestA = Math.max(...a.threads.map((thread) => Number(thread.updatedAt) || 0));
+    const latestB = Math.max(...b.threads.map((thread) => Number(thread.updatedAt) || 0));
+    return latestB - latestA;
+  });
+
+  for (const group of sortedGroups) {
+    group.threads.sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt));
+    const section = document.createElement("section");
+    section.className = "project-task-group";
+    section.setAttribute("aria-labelledby", `project-task-group-${group.projectId}`);
+
+    const header = document.createElement("header");
+    header.className = "project-task-group-header";
+    const title = document.createElement("strong");
+    title.id = `project-task-group-${group.projectId}`;
+    title.className = "project-task-group-title";
+    title.textContent = projectName(group.projectId);
+    const activeCount = group.threads.filter((thread) => isActiveTask(thread.status)).length;
+    const meta = document.createElement("span");
+    meta.className = "project-task-group-meta";
+    meta.textContent = `${group.threads.length} 个任务${activeCount ? ` · ${activeCount} 个进行中` : ""}`;
+    header.append(title, meta);
+
+    const items = document.createElement("div");
+    items.className = "project-task-items";
+    for (const thread of group.threads) {
+      items.append(createTaskRow(thread));
+    }
+    section.append(header, items);
+    el.taskList.append(section);
+  }
+}
+
+function createTaskRow(thread) {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "task-row";
+  row.addEventListener("click", () => void selectThread(thread.id));
+
+  const dot = document.createElement("span");
+  dot.className = `status-dot ${dotClass(thread.status)}`;
+  const copy = document.createElement("span");
+  copy.className = "task-row-copy";
+  const title = document.createElement("span");
+  title.className = "task-row-title";
+  title.textContent = thread.title;
+  const meta = document.createElement("span");
+  meta.className = "task-row-meta";
+  meta.textContent = `${projectName(thread.projectId)} · ${relativeTime(thread.updatedAt)}`;
+  copy.append(title, meta);
+  const status = document.createElement("span");
+  status.className = `status-label ${thread.status}`;
+  status.textContent = statusLabel(thread.status);
+  row.append(dot, copy, status);
+  return row;
 }
 
 function renderDetail() {
@@ -942,6 +984,10 @@ function statusLabel(status) {
 
 function dotClass(status) {
   return ["running", "starting"].includes(status) ? "ready" : status === "failed" ? "offline" : status === "approval" ? "offline" : "";
+}
+
+function isActiveTask(status) {
+  return ["starting", "running", "approval", "stopping"].includes(status);
 }
 
 function relativeTime(value) {
