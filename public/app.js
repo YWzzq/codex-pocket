@@ -1,6 +1,10 @@
 const state = {
   session: null,
   projects: [],
+  models: [],
+  model: "",
+  effort: "",
+  serviceTier: "",
   threads: [],
   selectedId: null,
   timelines: new Map(),
@@ -37,6 +41,9 @@ const el = {
   workspacePairCode: document.querySelector("#workspacePairCode"),
   workspacePairNotice: document.querySelector("#workspacePairNotice"),
   projectSelect: document.querySelector("#projectSelect"),
+  modelSelect: document.querySelector("#modelSelect"),
+  reasoningSelect: document.querySelector("#reasoningSelect"),
+  serviceTierSelect: document.querySelector("#serviceTierSelect"),
   taskHeading: document.querySelector("#taskHeading"),
   newTaskButton: document.querySelector("#newTaskButton"),
   taskList: document.querySelector("#taskList"),
@@ -77,6 +84,22 @@ el.pairForm.addEventListener("submit", async (event) => {
 
 el.pairCode.addEventListener("input", () => {
   el.pairCode.value = el.pairCode.value.toUpperCase().replace(/[^A-Z0-9-]/g, "");
+});
+
+el.modelSelect.addEventListener("change", () => {
+  state.model = el.modelSelect.value;
+  const model = selectedModel();
+  state.effort = model?.defaultReasoningEffort ?? "";
+  state.serviceTier = "";
+  renderModelSettings();
+});
+
+el.reasoningSelect.addEventListener("change", () => {
+  state.effort = el.reasoningSelect.value;
+});
+
+el.serviceTierSelect.addEventListener("change", () => {
+  state.serviceTier = el.serviceTierSelect.value;
 });
 
 el.logoutButton.addEventListener("click", async () => {
@@ -319,6 +342,9 @@ async function loadWorkspace() {
   state.session = session;
   state.projects = session.projects ?? [];
   state.approvals = session.approvals ?? [];
+  const modelData = await request("/api/models").catch(() => ({ models: [] }));
+  state.models = modelData.models ?? [];
+  initializeModelSettings();
   const threadData = await request("/api/threads");
   state.threads = threadData.threads ?? [];
   el.pairView.hidden = true;
@@ -330,6 +356,10 @@ async function loadWorkspace() {
 function resetToPairing() {
   state.session = null;
   state.projects = [];
+  state.models = [];
+  state.model = "";
+  state.effort = "";
+  state.serviceTier = "";
   state.threads = [];
   state.selectedId = null;
   state.timelines.clear();
@@ -340,10 +370,70 @@ function resetToPairing() {
 function renderWorkspace() {
   renderConnection();
   renderProjects();
+  renderModelSettings();
   renderTaskList();
   renderDetail();
   renderComposer();
   renderApproval();
+}
+
+function initializeModelSettings() {
+  const defaultModel = state.models.find((model) => model.isDefault) ?? state.models[0];
+  if (!state.models.some((model) => model.id === state.model)) state.model = defaultModel?.id ?? "";
+  const model = selectedModel();
+  const supportedEfforts = model?.supportedReasoningEfforts ?? [];
+  if (!supportedEfforts.some((effort) => effort.id === state.effort)) state.effort = model?.defaultReasoningEffort ?? supportedEfforts[0]?.id ?? "";
+  const supportedTiers = model?.serviceTiers ?? [];
+  if (!supportedTiers.some((tier) => tier.id === state.serviceTier)) state.serviceTier = "";
+}
+
+function selectedModel() {
+  return state.models.find((model) => model.id === state.model) ?? null;
+}
+
+function renderModelSettings() {
+  const model = selectedModel();
+  const locked = Boolean(selectedThread());
+  el.modelSelect.replaceChildren();
+  for (const entry of state.models) {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = entry.displayName;
+    option.title = entry.description;
+    el.modelSelect.append(option);
+  }
+  el.modelSelect.value = state.model;
+  el.modelSelect.disabled = locked || state.models.length === 0;
+
+  el.reasoningSelect.replaceChildren();
+  const defaultReasoning = document.createElement("option");
+  defaultReasoning.value = "";
+  defaultReasoning.textContent = "默认";
+  el.reasoningSelect.append(defaultReasoning);
+  for (const effort of model?.supportedReasoningEfforts ?? []) {
+    const option = document.createElement("option");
+    option.value = effort.id;
+    option.textContent = effort.id === model.defaultReasoningEffort ? `${effort.id}（默认）` : effort.id;
+    option.title = effort.description;
+    el.reasoningSelect.append(option);
+  }
+  el.reasoningSelect.value = state.effort;
+  el.reasoningSelect.disabled = locked || !model || (model.supportedReasoningEfforts ?? []).length === 0;
+
+  el.serviceTierSelect.replaceChildren();
+  const defaultTier = document.createElement("option");
+  defaultTier.value = "";
+  defaultTier.textContent = "默认速度";
+  el.serviceTierSelect.append(defaultTier);
+  for (const tier of model?.serviceTiers ?? []) {
+    const option = document.createElement("option");
+    option.value = tier.id;
+    option.textContent = tier.name;
+    option.title = tier.description;
+    el.serviceTierSelect.append(option);
+  }
+  el.serviceTierSelect.value = state.serviceTier;
+  el.serviceTierSelect.disabled = locked || !model || (model.serviceTiers ?? []).length === 0;
 }
 
 function renderConnection() {
@@ -496,7 +586,7 @@ async function sendPrompt(prompt) {
       appendTimeline(selected.id, { type: "message", role: "user", text: prompt, at: Date.now() });
       upsertThread(result.thread);
     } else {
-      result = await request("/api/threads", { method: "POST", body: { projectId: project.id, prompt } });
+      result = await request("/api/threads", { method: "POST", body: { projectId: project.id, prompt, settings: selectedSettings() } });
       upsertThread(result.thread);
       state.selectedId = result.thread.id;
       state.timelines.set(result.thread.id, [{ type: "message", role: "user", text: prompt, at: Date.now() }]);
@@ -509,6 +599,14 @@ async function sendPrompt(prompt) {
     state.sendPending = false;
     renderComposer();
   }
+}
+
+function selectedSettings() {
+  return {
+    ...(state.model ? { model: state.model } : {}),
+    ...(state.effort ? { effort: state.effort } : {}),
+    ...(state.serviceTier ? { serviceTier: state.serviceTier } : {}),
+  };
 }
 
 async function resolveApproval(action) {

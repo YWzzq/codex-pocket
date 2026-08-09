@@ -25,6 +25,7 @@ const INVITATION_TTL_MS = 5 * 60 * 1000;
 const SESSION_IDLE_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_ABSOLUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEVICE_COOKIE_MAX_AGE_MS = 10 * 365 * 24 * 60 * 60 * 1000;
+const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_PROMPT_LENGTH = 16_000;
 const MAX_THREADS = 80;
 const LOCAL_ORIGINS = new Set([
@@ -56,6 +57,7 @@ const approvals = new Map();
 const activeTurns = new Map();
 const loadedThreads = new Set();
 let bridge;
+let modelCache = { loadedAt: 0, models: [] };
 
 const app = express();
 app.disable("x-powered-by");
@@ -180,6 +182,11 @@ app.get("/api/session", requireSession, (req, res) => {
   });
 });
 
+app.get("/api/models", requireSession, asyncHandler(async (req, res) => {
+  const models = await getModelCatalog();
+  res.json({ models: models.map(publicModel) });
+}));
+
 app.get("/api/projects", requireSession, (req, res) => {
   res.json({ projects: projects.map(publicProject) });
 });
@@ -204,6 +211,7 @@ app.get("/api/threads/:threadId", requireSession, asyncHandler(async (req, res) 
 app.post("/api/threads", requireSession, asyncHandler(async (req, res) => {
   const project = projectById.get(String(req.body?.projectId ?? ""));
   const prompt = validatePrompt(req.body?.prompt);
+  const settings = await resolveModelSettings(req.body?.settings);
   if (!project) {
     res.status(400).json({ error: "Choose one of the approved project directories." });
     return;
@@ -214,6 +222,7 @@ app.post("/api/threads", requireSession, asyncHandler(async (req, res) => {
     cwd: project.cwd,
     approvalPolicy: "on-request",
     sandbox: "workspace-write",
+    ...threadStartSettings(settings),
   });
   const threadId = created?.thread?.id;
   if (typeof threadId !== "string" || threadId.length === 0) {
@@ -229,6 +238,9 @@ app.post("/api/threads", requireSession, asyncHandler(async (req, res) => {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     activeTurnId: null,
+    model: settings.model ?? null,
+    effort: settings.effort ?? null,
+    serviceTier: settings.serviceTier ?? null,
   };
   loadedThreads.add(thread.id);
   await registry.upsert(thread);
@@ -246,6 +258,7 @@ app.post("/api/threads/:threadId/messages", requireSession, asyncHandler(async (
       cwd: thread.cwd,
       approvalPolicy: "on-request",
       sandbox: "workspace-write",
+      ...threadStartSettings(thread),
     });
     loadedThreads.add(thread.id);
   }
@@ -388,6 +401,7 @@ async function startTurn(thread, prompt) {
     approvalPolicy: "on-request",
     input: [{ type: "text", text: prompt, text_elements: [] }],
     sandboxPolicy: workspacePolicy(thread.cwd),
+    ...turnStartSettings(thread),
   });
   const turnId = result?.turn?.id;
   if (typeof turnId !== "string" || turnId.length === 0) {
@@ -400,6 +414,87 @@ async function startTurn(thread, prompt) {
     updatedAt: Date.now(),
   });
   return { id: turnId };
+}
+
+async function getModelCatalog() {
+  if (modelCache.models.length > 0 && Date.now() - modelCache.loadedAt < MODEL_CACHE_TTL_MS) {
+    return modelCache.models;
+  }
+  await bridge.start();
+  const result = await bridge.request("model/list", {});
+  const models = Array.isArray(result?.data)
+    ? result.data.filter((model) => typeof model?.id === "string" && !model.hidden)
+    : [];
+  modelCache = { loadedAt: Date.now(), models };
+  return models;
+}
+
+function publicModel(model) {
+  return {
+    id: model.id,
+    displayName: model.displayName || model.model || model.id,
+    description: typeof model.description === "string" ? model.description : "",
+    isDefault: Boolean(model.isDefault),
+    defaultReasoningEffort: model.defaultReasoningEffort || "",
+    supportedReasoningEfforts: Array.isArray(model.supportedReasoningEfforts)
+      ? model.supportedReasoningEfforts.map((effort) => ({
+        id: effort.reasoningEffort,
+        description: effort.description || "",
+      }))
+      : [],
+    serviceTiers: Array.isArray(model.serviceTiers)
+      ? model.serviceTiers.map((tier) => ({ id: tier.id, name: tier.name || tier.id, description: tier.description || "" }))
+      : [],
+  };
+}
+
+async function resolveModelSettings(rawSettings) {
+  if (rawSettings === undefined || rawSettings === null) return {};
+  if (typeof rawSettings !== "object" || Array.isArray(rawSettings)) {
+    const error = new Error("Model settings are invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const modelId = typeof rawSettings.model === "string" ? rawSettings.model.trim() : "";
+  const effort = typeof rawSettings.effort === "string" ? rawSettings.effort.trim() : "";
+  const serviceTier = typeof rawSettings.serviceTier === "string" ? rawSettings.serviceTier.trim() : "";
+  if (!modelId && !effort && !serviceTier) return {};
+
+  const model = (await getModelCatalog()).find((entry) => entry.id === modelId);
+  if (!model) {
+    const error = new Error("Choose a model from the available model list.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const supportedEfforts = new Set((model.supportedReasoningEfforts ?? []).map((entry) => entry.reasoningEffort));
+  if (effort && !supportedEfforts.has(effort)) {
+    const error = new Error("That reasoning level is not supported by the selected model.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const supportedTiers = new Set((model.serviceTiers ?? []).map((entry) => entry.id));
+  if (serviceTier && !supportedTiers.has(serviceTier)) {
+    const error = new Error("That service tier is not supported by the selected model.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return {
+    model: model.id,
+    ...(effort ? { effort } : {}),
+    ...(serviceTier ? { serviceTier } : {}),
+  };
+}
+
+function threadStartSettings(settings) {
+  return settings?.model ? { model: settings.model } : {};
+}
+
+function turnStartSettings(settings) {
+  return {
+    ...(settings?.model ? { model: settings.model } : {}),
+    ...(settings?.effort ? { effort: settings.effort } : {}),
+    ...(settings?.serviceTier ? { serviceTier: settings.serviceTier } : {}),
+  };
 }
 
 function workspacePolicy(cwd) {
@@ -591,6 +686,9 @@ function publicThread(thread) {
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
     activeTurnId: thread.activeTurnId ?? null,
+    model: thread.model ?? null,
+    effort: thread.effort ?? null,
+    serviceTier: thread.serviceTier ?? null,
   };
 }
 

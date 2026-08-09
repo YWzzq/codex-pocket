@@ -53,6 +53,28 @@
           <select id="projectSelect"></select>
         </section>
 
+        <section class="model-bar" aria-label="模型设置">
+          <label>
+            <span>模型</span>
+            <select id="modelSelect" disabled>
+              <option>正在读取模型…</option>
+            </select>
+          </label>
+          <label>
+            <span>推理强度</span>
+            <select id="reasoningSelect" disabled>
+              <option>默认</option>
+            </select>
+          </label>
+          <label>
+            <span>速度</span>
+            <select id="serviceTierSelect" disabled>
+              <option value="">默认</option>
+            </select>
+          </label>
+          <p class="model-notice">设置仅对新任务生效，继续已有任务会保持原模型。</p>
+        </section>
+
         <section class="task-header">
           <div>
             <p class="eyebrow">任务</p>
