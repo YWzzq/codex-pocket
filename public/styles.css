@@ -730,6 +730,64 @@ textarea {
   margin: 16px 0;
 }
 
+.project-candidate-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.project-candidate-toolbar strong {
+  font-size: 13px;
+}
+
+.project-candidate-list {
+  display: grid;
+  max-height: 260px;
+  overflow: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.project-candidate-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.project-candidate-row input {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  accent-color: var(--green);
+}
+
+.project-candidate-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.project-candidate-copy strong,
+.project-candidate-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-candidate-copy strong {
+  font-size: 13px;
+}
+
+.project-candidate-copy small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .project-add-row {
   display: flex;
   gap: 8px;

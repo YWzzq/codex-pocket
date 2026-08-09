@@ -192,6 +192,10 @@ app.get("/api/admin/projects", requireLocalAdmin, (req, res) => {
   res.json({ projects: projects.map(publicProject) });
 });
 
+app.get("/api/admin/project-candidates", requireLocalAdmin, asyncHandler(async (req, res) => {
+  res.json({ candidates: await discoverProjectCandidates() });
+}));
+
 app.post("/api/admin/projects", requireLocalAdmin, asyncHandler(async (req, res) => {
   const roots = await validateProjectRoots(req.body?.roots);
   await persistAllowedRoots(roots);
@@ -1155,6 +1159,64 @@ async function validateProjectRoots(rawRoots) {
     roots.push(resolved);
   }
   return [...new Set(roots)];
+}
+
+async function discoverProjectCandidates() {
+  const scanRoots = [...new Set(allowedRoots.map((root) => path.dirname(root)))];
+  const candidates = new Map();
+  for (const scanRoot of scanRoots) {
+    let entries;
+    try {
+      entries = await fs.readdir(scanRoot, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith(".")) continue;
+      if (["node_modules", "tmp", "dist", "build"].includes(entry.name)) continue;
+      const cwd = path.join(scanRoot, entry.name);
+      const hasMarker = await directoryLooksLikeProject(cwd);
+      if (!hasMarker && !allowedRoots.includes(cwd)) continue;
+      candidates.set(cwd, {
+        id: shortHash(cwd),
+        name: entry.name,
+        cwd,
+        selected: allowedRoots.includes(cwd),
+        kind: hasMarker ? "project" : "directory",
+      });
+    }
+  }
+  for (const cwd of allowedRoots) {
+    if (!candidates.has(cwd)) {
+      candidates.set(cwd, { id: shortHash(cwd), name: path.basename(cwd) || cwd, cwd, selected: true, kind: "project" });
+    }
+  }
+  return [...candidates.values()].sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+}
+
+async function directoryLooksLikeProject(cwd) {
+  const markers = [
+    ".git",
+    "package.json",
+    "pyproject.toml",
+    "requirements.txt",
+    "Cargo.toml",
+    "go.mod",
+    "pom.xml",
+    "Makefile",
+    "README.md",
+    "hugo.toml",
+    "config.toml",
+  ];
+  for (const marker of markers) {
+    try {
+      await fs.access(path.join(cwd, marker));
+      return true;
+    } catch {
+      // Try the next common project marker.
+    }
+  }
+  return false;
 }
 
 function applyAllowedRoots(roots) {

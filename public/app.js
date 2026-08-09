@@ -2,6 +2,7 @@ const state = {
   session: null,
   projects: [],
   projectRoots: [],
+  projectCandidates: [],
   models: [],
   model: "",
   effort: "",
@@ -38,6 +39,8 @@ const el = {
   projectForm: document.querySelector("#projectForm"),
   projectPathInput: document.querySelector("#projectPathInput"),
   projectError: document.querySelector("#projectError"),
+  projectCandidateList: document.querySelector("#projectCandidateList"),
+  refreshCandidatesButton: document.querySelector("#refreshCandidatesButton"),
   projectRootList: document.querySelector("#projectRootList"),
   saveProjectsButton: document.querySelector("#saveProjectsButton"),
   sessionDialog: document.querySelector("#sessionDialog"),
@@ -136,6 +139,7 @@ el.projectForm.addEventListener("submit", (event) => {
   event.preventDefault();
   addProjectRoot();
 });
+el.refreshCandidatesButton.addEventListener("click", () => void loadProjectCandidates());
 el.saveProjectsButton.addEventListener("click", () => void saveProjectRoots());
 
 el.sessionButton.addEventListener("click", () => void showSessionDialog());
@@ -284,8 +288,55 @@ async function showProjectDialog() {
     const data = await request("/api/admin/projects");
     state.projectRoots = (data.projects ?? []).map((project) => project.cwd);
     renderProjectRoots();
+    await loadProjectCandidates();
   } catch (error) {
     el.projectError.textContent = error.message;
+  }
+}
+
+async function loadProjectCandidates() {
+  el.refreshCandidatesButton.disabled = true;
+  try {
+    const data = await request("/api/admin/project-candidates");
+    state.projectCandidates = data.candidates ?? [];
+    renderProjectCandidates();
+  } catch (error) {
+    el.projectError.textContent = error.message;
+  } finally {
+    el.refreshCandidatesButton.disabled = false;
+  }
+}
+
+function renderProjectCandidates() {
+  el.projectCandidateList.replaceChildren();
+  if (state.projectCandidates.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "当前扫描目录没有发现可选项目。";
+    el.projectCandidateList.append(empty);
+    return;
+  }
+  for (const candidate of state.projectCandidates) {
+    const label = document.createElement("label");
+    label.className = "project-candidate-row";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = state.projectRoots.includes(candidate.cwd);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) state.projectRoots.push(candidate.cwd);
+      else state.projectRoots = state.projectRoots.filter((root) => root !== candidate.cwd);
+      state.projectRoots = [...new Set(state.projectRoots)];
+      renderProjectRoots();
+    });
+    const copy = document.createElement("span");
+    copy.className = "project-candidate-copy";
+    const name = document.createElement("strong");
+    name.textContent = candidate.name;
+    const pathText = document.createElement("small");
+    pathText.textContent = candidate.cwd;
+    copy.append(name, pathText);
+    label.append(checkbox, copy);
+    el.projectCandidateList.append(label);
   }
 }
 
@@ -314,6 +365,7 @@ function renderProjectRoots() {
     empty.textContent = "至少保留一个项目目录。";
     el.projectRootList.append(empty);
   }
+  if (state.projectCandidates.length > 0) renderProjectCandidates();
 }
 
 function addProjectRoot() {
@@ -455,6 +507,7 @@ function resetToPairing() {
   state.session = null;
   state.projects = [];
   state.projectRoots = [];
+  state.projectCandidates = [];
   state.models = [];
   state.model = "";
   state.effort = "";
