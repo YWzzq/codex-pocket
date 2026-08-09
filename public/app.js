@@ -687,7 +687,7 @@ function createTaskRow(thread) {
   title.textContent = thread.title;
   const meta = document.createElement("span");
   meta.className = "task-row-meta";
-  meta.textContent = `${projectName(thread.projectId)} · ${relativeTime(thread.updatedAt)}`;
+  meta.textContent = relativeTime(thread.updatedAt);
   copy.append(title, meta);
   const status = document.createElement("span");
   status.className = `status-label ${thread.status}`;
