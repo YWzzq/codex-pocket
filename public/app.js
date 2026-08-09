@@ -1,0 +1,709 @@
+const state = {
+  session: null,
+  projects: [],
+  threads: [],
+  selectedId: null,
+  timelines: new Map(),
+  approvals: [],
+  sessions: [],
+  socket: null,
+  reconnectTimer: null,
+  sendPending: false,
+};
+
+const el = {
+  pairView: document.querySelector("#pairView"),
+  pairHint: document.querySelector("#pairHint"),
+  pairForm: document.querySelector("#pairForm"),
+  pairCode: document.querySelector("#pairCode"),
+  pairError: document.querySelector("#pairError"),
+  localPairing: document.querySelector("#localPairing"),
+  pairQr: document.querySelector("#pairQr"),
+  localPairCode: document.querySelector("#localPairCode"),
+  localPairNotice: document.querySelector("#localPairNotice"),
+  workspaceView: document.querySelector("#workspaceView"),
+  connectionDot: document.querySelector("#connectionDot"),
+  connectionLabel: document.querySelector("#connectionLabel"),
+  hostName: document.querySelector("#hostName"),
+  logoutButton: document.querySelector("#logoutButton"),
+  pairButton: document.querySelector("#pairButton"),
+  sessionButton: document.querySelector("#sessionButton"),
+  sessionDialog: document.querySelector("#sessionDialog"),
+  sessionCount: document.querySelector("#sessionCount"),
+  sessionList: document.querySelector("#sessionList"),
+  revokeAllButton: document.querySelector("#revokeAllButton"),
+  pairDialog: document.querySelector("#pairDialog"),
+  workspacePairQr: document.querySelector("#workspacePairQr"),
+  workspacePairCode: document.querySelector("#workspacePairCode"),
+  workspacePairNotice: document.querySelector("#workspacePairNotice"),
+  projectSelect: document.querySelector("#projectSelect"),
+  taskHeading: document.querySelector("#taskHeading"),
+  newTaskButton: document.querySelector("#newTaskButton"),
+  taskList: document.querySelector("#taskList"),
+  detailView: document.querySelector("#detailView"),
+  backButton: document.querySelector("#backButton"),
+  interruptButton: document.querySelector("#interruptButton"),
+  detailTitle: document.querySelector("#detailTitle"),
+  detailMeta: document.querySelector("#detailMeta"),
+  detailStatus: document.querySelector("#detailStatus"),
+  timeline: document.querySelector("#timeline"),
+  composer: document.querySelector("#composer"),
+  promptInput: document.querySelector("#promptInput"),
+  composerContext: document.querySelector("#composerContext"),
+  sendButton: document.querySelector("#sendButton"),
+  deviceButton: document.querySelector("#deviceButton"),
+  approvalSheet: document.querySelector("#approvalSheet"),
+  approvalTitle: document.querySelector("#approvalTitle"),
+  approvalReason: document.querySelector("#approvalReason"),
+  approvalCommand: document.querySelector("#approvalCommand"),
+  approvalPath: document.querySelector("#approvalPath"),
+  approvalAllow: document.querySelector("#approvalAllow"),
+  approvalDeny: document.querySelector("#approvalDeny"),
+  approvalStop: document.querySelector("#approvalStop"),
+  toast: document.querySelector("#toast"),
+};
+
+void boot();
+
+el.pairButton.hidden = !["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
+el.sessionButton.hidden = el.pairButton.hidden;
+
+el.pairForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const code = el.pairCode.value.trim();
+  if (!code) return;
+  await pair({ code });
+});
+
+el.pairCode.addEventListener("input", () => {
+  el.pairCode.value = el.pairCode.value.toUpperCase().replace(/[^A-Z0-9-]/g, "");
+});
+
+el.logoutButton.addEventListener("click", async () => {
+  try {
+    await request("/api/logout", { method: "POST" });
+  } finally {
+    resetToPairing();
+  }
+});
+
+el.pairButton.addEventListener("click", () => void showPairDialog());
+for (const closeButton of el.pairDialog.querySelectorAll("[data-close-pair]")) {
+  closeButton.addEventListener("click", () => {
+    el.pairDialog.hidden = true;
+  });
+}
+
+el.sessionButton.addEventListener("click", () => void showSessionDialog());
+for (const closeButton of el.sessionDialog.querySelectorAll("[data-close-sessions]")) {
+  closeButton.addEventListener("click", () => {
+    el.sessionDialog.hidden = true;
+  });
+}
+el.revokeAllButton.addEventListener("click", () => void revokeAllSessions());
+
+el.newTaskButton.addEventListener("click", () => {
+  state.selectedId = null;
+  renderWorkspace();
+  el.promptInput.focus();
+});
+
+el.backButton.addEventListener("click", () => {
+  state.selectedId = null;
+  renderWorkspace();
+});
+
+el.interruptButton.addEventListener("click", async () => {
+  const thread = selectedThread();
+  if (!thread) return;
+  try {
+    el.interruptButton.disabled = true;
+    await request(`/api/threads/${encodeURIComponent(thread.id)}/interrupt`, { method: "POST" });
+    showToast("已请求停止任务");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    el.interruptButton.disabled = false;
+  }
+});
+
+el.composer.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const prompt = el.promptInput.value.trim();
+  if (!prompt || state.sendPending) return;
+  await sendPrompt(prompt);
+});
+
+el.deviceButton.addEventListener("click", () => {
+  if (el.sessionButton.hidden) {
+    const detail = state.session?.appServer?.detail ?? "正在检查本机 Codex";
+    showToast(`${state.session?.host ?? "本地电脑"}: ${detail}`);
+    return;
+  }
+  void showSessionDialog();
+});
+
+el.approvalAllow.addEventListener("click", () => resolveApproval("allow"));
+el.approvalDeny.addEventListener("click", () => resolveApproval("deny"));
+el.approvalStop.addEventListener("click", () => resolveApproval("stop"));
+
+async function boot() {
+  const url = new URL(window.location.href);
+  const token = url.searchParams.get("pair");
+  if (token) {
+    try {
+      await pair({ token }, false);
+      url.searchParams.delete("pair");
+      window.history.replaceState({}, "", url);
+    } catch (error) {
+      showPairing(error.message);
+      return;
+    }
+  }
+
+  try {
+    await loadWorkspace();
+  } catch (error) {
+    showPairing(error.status === 401 ? "输入电脑上显示的配对码。" : error.message);
+  }
+}
+
+async function pair(payload, loadAfter = true) {
+  el.pairError.textContent = "";
+  try {
+    await request("/api/pair", { method: "POST", body: payload });
+    if (loadAfter) await loadWorkspace();
+  } catch (error) {
+    el.pairError.textContent = error.message;
+    throw error;
+  }
+}
+
+function showPairing(message) {
+  closeSocket();
+  el.workspaceView.hidden = true;
+  el.pairView.hidden = false;
+  el.pairHint.textContent = message;
+  el.pairError.textContent = "";
+  void showLocalPairing();
+}
+
+async function showLocalPairing() {
+  try {
+    const setup = await request("/api/bootstrap");
+    el.localPairing.hidden = false;
+    el.pairQr.src = setup.qrDataUrl;
+    el.localPairCode.textContent = `配对码：${setup.pairingCode}`;
+    el.localPairNotice.textContent = setup.publicReachable
+      ? "扫描二维码即可在手机上配对。"
+      : "先配置 HTTPS 访问地址，再从手机扫描二维码。";
+  } catch {
+    el.localPairing.hidden = true;
+  }
+}
+
+async function showPairDialog() {
+  el.pairDialog.hidden = false;
+  el.workspacePairCode.textContent = "正在生成配对码…";
+  try {
+    const setup = await request("/api/bootstrap");
+    el.workspacePairQr.src = setup.qrDataUrl;
+    el.workspacePairCode.textContent = `配对码：${setup.pairingCode}`;
+    el.workspacePairNotice.textContent = setup.publicReachable
+      ? "二维码有效期五分钟，手机和电脑不需要连接同一个 Wi-Fi。"
+      : "配置 HTTPS 访问地址后，手机才能通过二维码连接。";
+  } catch (error) {
+    el.workspacePairCode.textContent = "无法生成配对码";
+    el.workspacePairNotice.textContent = error.message;
+  }
+}
+
+async function showSessionDialog() {
+  el.sessionDialog.hidden = false;
+  el.sessionList.replaceChildren();
+  const loading = document.createElement("p");
+  loading.className = "empty-state";
+  loading.textContent = "正在读取连接…";
+  el.sessionList.append(loading);
+  try {
+    const data = await request("/api/admin/sessions");
+    state.sessions = data.sessions ?? [];
+    renderSessions();
+  } catch (error) {
+    el.sessionList.replaceChildren();
+    const failure = document.createElement("p");
+    failure.className = "empty-state";
+    failure.textContent = error.message;
+    el.sessionList.append(failure);
+  }
+}
+
+function renderSessions() {
+  const sessions = state.sessions;
+  el.sessionCount.textContent = `${sessions.length} 个连接`;
+  el.revokeAllButton.disabled = sessions.every((session) => session.current);
+  el.sessionList.replaceChildren();
+  if (sessions.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "当前没有已配对的设备。";
+    el.sessionList.append(empty);
+    return;
+  }
+  for (const session of sessions) {
+    const row = document.createElement("div");
+    row.className = "session-row";
+    const copy = document.createElement("div");
+    copy.className = "session-copy";
+    const title = document.createElement("strong");
+    title.textContent = session.current ? `${session.device}（当前电脑）` : session.device;
+    const meta = document.createElement("span");
+    meta.textContent = `最近活动：${formatSessionTime(session.lastSeenAt)} · 创建于 ${formatSessionTime(session.createdAt)}`;
+    copy.append(title, meta);
+    const revoke = document.createElement("button");
+    revoke.className = "button secondary compact";
+    revoke.type = "button";
+    revoke.textContent = session.current ? "当前会话" : "断开";
+    revoke.disabled = session.current;
+    revoke.addEventListener("click", () => void revokeSession(session));
+    row.append(copy, revoke);
+    el.sessionList.append(row);
+  }
+}
+
+async function revokeSession(session) {
+  if (!window.confirm(`确定断开“${session.device}”吗？`)) return;
+  try {
+    await request(`/api/admin/sessions/${encodeURIComponent(session.id)}/revoke`, { method: "POST" });
+    await showSessionDialog();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function revokeAllSessions() {
+  if (!window.confirm("确定断开其他所有手机和浏览器吗？")) return;
+  try {
+    await request("/api/admin/sessions/revoke-all", { method: "POST" });
+    await showSessionDialog();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function formatSessionTime(value) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+async function loadWorkspace() {
+  const session = await request("/api/session");
+  state.session = session;
+  state.projects = session.projects ?? [];
+  state.approvals = session.approvals ?? [];
+  const threadData = await request("/api/threads");
+  state.threads = threadData.threads ?? [];
+  el.pairView.hidden = true;
+  el.workspaceView.hidden = false;
+  renderWorkspace();
+  connectSocket();
+}
+
+function resetToPairing() {
+  state.session = null;
+  state.projects = [];
+  state.threads = [];
+  state.selectedId = null;
+  state.timelines.clear();
+  state.approvals = [];
+  showPairing("此浏览器已断开连接。");
+}
+
+function renderWorkspace() {
+  renderConnection();
+  renderProjects();
+  renderTaskList();
+  renderDetail();
+  renderComposer();
+  renderApproval();
+}
+
+function renderConnection() {
+  const appServer = state.session?.appServer;
+  const ready = appServer?.state === "ready";
+  el.hostName.textContent = state.session?.host ?? "本地电脑";
+  el.connectionLabel.textContent = ready ? "本地 Codex 已连接" : appServer?.detail ?? "本地 Codex 未连接";
+  el.connectionDot.className = `status-dot ${ready ? "ready" : "offline"}`;
+}
+
+function renderProjects() {
+  const selected = el.projectSelect.value || state.projects[0]?.id || "";
+  el.projectSelect.replaceChildren();
+  for (const project of state.projects) {
+    const option = document.createElement("option");
+    option.value = project.id;
+    option.textContent = project.name;
+    el.projectSelect.append(option);
+  }
+  el.projectSelect.value = state.projects.some((project) => project.id === selected) ? selected : state.projects[0]?.id ?? "";
+  el.projectSelect.onchange = () => renderComposer();
+}
+
+function renderTaskList() {
+  const hasSelection = Boolean(selectedThread());
+  el.taskList.hidden = hasSelection;
+  el.taskHeading.textContent = hasSelection ? "任务详情" : "所有任务";
+  if (hasSelection) return;
+
+  el.taskList.replaceChildren();
+  if (state.threads.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "还没有任务。选择项目后发出第一条指令。";
+    el.taskList.append(empty);
+    return;
+  }
+  for (const thread of state.threads) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "task-row";
+    row.addEventListener("click", () => void selectThread(thread.id));
+
+    const dot = document.createElement("span");
+    dot.className = `status-dot ${dotClass(thread.status)}`;
+    const copy = document.createElement("span");
+    copy.className = "task-row-copy";
+    const title = document.createElement("span");
+    title.className = "task-row-title";
+    title.textContent = thread.title;
+    const meta = document.createElement("span");
+    meta.className = "task-row-meta";
+    meta.textContent = `${projectName(thread.projectId)} · ${relativeTime(thread.updatedAt)}`;
+    copy.append(title, meta);
+    const status = document.createElement("span");
+    status.className = `status-label ${thread.status}`;
+    status.textContent = statusLabel(thread.status);
+    row.append(dot, copy, status);
+    el.taskList.append(row);
+  }
+}
+
+function renderDetail() {
+  const thread = selectedThread();
+  el.detailView.hidden = !thread;
+  if (!thread) return;
+  el.detailTitle.textContent = thread.title;
+  el.detailMeta.textContent = `${projectName(thread.projectId)} · ${thread.cwd}`;
+  el.detailStatus.className = `status-label ${thread.status}`;
+  el.detailStatus.textContent = statusLabel(thread.status);
+  el.interruptButton.hidden = !["running", "starting", "approval", "stopping"].includes(thread.status);
+  renderTimeline(thread.id);
+}
+
+function renderTimeline(threadId) {
+  const timeline = state.timelines.get(threadId) ?? [];
+  el.timeline.replaceChildren();
+  if (timeline.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "正在读取任务记录…";
+    el.timeline.append(empty);
+    return;
+  }
+  for (const entry of timeline) {
+    const node = document.createElement(entry.type === "output" ? "pre" : "div");
+    if (entry.type === "message") {
+      node.className = `timeline-message ${entry.role}`;
+      node.textContent = entry.text;
+    } else if (entry.type === "output") {
+      node.className = "timeline-output";
+      node.textContent = entry.text;
+    } else {
+      node.className = "timeline-activity";
+      node.textContent = entry.label ?? entry.message ?? "任务状态已更新";
+    }
+    el.timeline.append(node);
+  }
+  el.timeline.lastElementChild?.scrollIntoView({ block: "nearest" });
+}
+
+function renderComposer() {
+  const thread = selectedThread();
+  el.composerContext.textContent = thread
+    ? `${projectName(thread.projectId)} · 继续当前任务`
+    : `${selectedProject()?.name ?? "未选择项目"} · 开始新任务`;
+  el.sendButton.disabled = state.sendPending || state.projects.length === 0;
+}
+
+function renderApproval() {
+  const approval = state.approvals[0];
+  el.approvalSheet.hidden = !approval;
+  if (!approval) return;
+  const isPermissionRequest = approval.method === "item/permissions/requestApproval";
+  el.approvalTitle.textContent = isPermissionRequest ? "Codex 请求更多权限" : "Codex 想在电脑上执行操作";
+  el.approvalReason.textContent = approval.reason || (isPermissionRequest ? "该任务请求超出既有限制的权限。" : "该操作需要你的确认。") ;
+  el.approvalCommand.textContent = approval.command || (isPermissionRequest ? JSON.stringify(approval.permissions, null, 2) : "未提供命令详情");
+  el.approvalPath.textContent = approval.cwd ? `目录：${approval.cwd}` : "";
+  el.approvalAllow.textContent = isPermissionRequest ? "保持限制" : "仅本次允许";
+  el.approvalAllow.dataset.action = isPermissionRequest ? "keep_restricted" : "allow";
+  el.approvalDeny.hidden = isPermissionRequest;
+}
+
+async function selectThread(threadId) {
+  state.selectedId = threadId;
+  renderWorkspace();
+  try {
+    const data = await request(`/api/threads/${encodeURIComponent(threadId)}`);
+    if (state.selectedId !== threadId) return;
+    state.timelines.set(threadId, normalizeTimeline(data.history?.timeline));
+    renderWorkspace();
+  } catch (error) {
+    if (state.selectedId === threadId) showToast(error.message);
+  }
+}
+
+async function sendPrompt(prompt) {
+  const selected = selectedThread();
+  const project = selectedProject();
+  if (!selected && !project) {
+    showToast("先选择一个项目");
+    return;
+  }
+  state.sendPending = true;
+  renderComposer();
+  try {
+    let result;
+    if (selected) {
+      result = await request(`/api/threads/${encodeURIComponent(selected.id)}/messages`, { method: "POST", body: { prompt } });
+      appendTimeline(selected.id, { type: "message", role: "user", text: prompt, at: Date.now() });
+      upsertThread(result.thread);
+    } else {
+      result = await request("/api/threads", { method: "POST", body: { projectId: project.id, prompt } });
+      upsertThread(result.thread);
+      state.selectedId = result.thread.id;
+      state.timelines.set(result.thread.id, [{ type: "message", role: "user", text: prompt, at: Date.now() }]);
+    }
+    el.promptInput.value = "";
+    renderWorkspace();
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    state.sendPending = false;
+    renderComposer();
+  }
+}
+
+async function resolveApproval(action) {
+  const approval = state.approvals[0];
+  if (!approval) return;
+  const effectiveAction = action === "allow" ? el.approvalAllow.dataset.action : action;
+  try {
+    setApprovalButtons(true);
+    await request(`/api/approvals/${encodeURIComponent(approval.id)}`, { method: "POST", body: { action: effectiveAction } });
+    state.approvals = state.approvals.filter((entry) => entry.id !== approval.id);
+    renderApproval();
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setApprovalButtons(false);
+  }
+}
+
+function setApprovalButtons(disabled) {
+  el.approvalAllow.disabled = disabled;
+  el.approvalDeny.disabled = disabled;
+  el.approvalStop.disabled = disabled;
+}
+
+function connectSocket() {
+  closeSocket();
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+  state.socket = socket;
+  socket.addEventListener("message", (event) => {
+    try {
+      handleSocketEvent(JSON.parse(event.data));
+    } catch {
+      // Ignore malformed transient events instead of breaking the task view.
+    }
+  });
+  socket.addEventListener("close", () => {
+    if (state.socket === socket && state.session) {
+      updateAppServer({ state: "offline", detail: "与本地控制台的连接已断开" });
+      state.reconnectTimer = window.setTimeout(connectSocket, 2_000);
+    }
+  });
+  socket.addEventListener("error", () => socket.close());
+}
+
+function closeSocket() {
+  window.clearTimeout(state.reconnectTimer);
+  state.reconnectTimer = null;
+  if (state.socket) {
+    state.socket.close();
+    state.socket = null;
+  }
+}
+
+function handleSocketEvent(event) {
+  if (event.type === "snapshot") {
+    state.threads = event.threads ?? state.threads;
+    state.approvals = event.approvals ?? state.approvals;
+    updateAppServer(event.appServer);
+    renderWorkspace();
+    return;
+  }
+  if (event.type === "app_server") {
+    updateAppServer(event.appServer);
+    renderWorkspace();
+    return;
+  }
+  if (event.type === "thread_updated") {
+    upsertThread(event.thread);
+    renderWorkspace();
+    return;
+  }
+  if (event.type === "approval_requested") {
+    state.approvals = [event.approval, ...state.approvals.filter((entry) => entry.id !== event.approval.id)];
+    renderWorkspace();
+    return;
+  }
+  if (event.type === "approval_resolved") {
+    state.approvals = state.approvals.filter((approval) => approval.id !== event.approvalId);
+    renderWorkspace();
+    return;
+  }
+  if (!event.threadId) return;
+  if (event.type === "agent_delta") {
+    appendDelta(event.threadId, event.itemId, "message", "assistant", event.delta);
+  } else if (event.type === "command_output") {
+    appendDelta(event.threadId, event.itemId, "output", null, event.delta);
+  } else if (event.type === "activity") {
+    upsertActivity(event.threadId, event);
+  } else if (event.type === "error") {
+    appendTimeline(event.threadId, { type: "activity", label: event.message, at: event.at });
+  }
+  if (state.selectedId === event.threadId) renderWorkspace();
+}
+
+function appendDelta(threadId, itemId, type, role, delta) {
+  const timeline = state.timelines.get(threadId) ?? [];
+  let entry = timeline.find((candidate) => candidate.itemId === itemId);
+  if (!entry) {
+    entry = { type, role, text: "", itemId, at: Date.now() };
+    timeline.push(entry);
+  }
+  entry.text += delta;
+  state.timelines.set(threadId, timeline);
+}
+
+function appendTimeline(threadId, entry) {
+  const timeline = state.timelines.get(threadId) ?? [];
+  timeline.push(entry);
+  state.timelines.set(threadId, timeline);
+}
+
+function upsertActivity(threadId, event) {
+  const timeline = state.timelines.get(threadId) ?? [];
+  const existing = event.itemId
+    ? timeline.find((entry) => entry.type === "activity" && entry.itemId === event.itemId)
+    : null;
+  if (existing) {
+    existing.label = event.label;
+    existing.phase = event.phase;
+    existing.at = event.at;
+  } else {
+    timeline.push({
+      type: "activity",
+      itemId: event.itemId,
+      label: event.label,
+      phase: event.phase,
+      at: event.at,
+    });
+  }
+  state.timelines.set(threadId, timeline);
+}
+
+function normalizeTimeline(timeline) {
+  return Array.isArray(timeline) ? timeline.map((entry) => ({ ...entry })) : [];
+}
+
+function upsertThread(thread) {
+  if (!thread?.id) return;
+  const current = state.threads.findIndex((entry) => entry.id === thread.id);
+  if (current >= 0) state.threads[current] = { ...state.threads[current], ...thread };
+  else state.threads.unshift(thread);
+  state.threads.sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt));
+}
+
+function updateAppServer(appServer) {
+  if (!state.session || !appServer) return;
+  state.session.appServer = appServer;
+}
+
+function selectedThread() {
+  return state.threads.find((thread) => thread.id === state.selectedId) ?? null;
+}
+
+function selectedProject() {
+  return state.projects.find((project) => project.id === el.projectSelect.value) ?? state.projects[0] ?? null;
+}
+
+function projectName(projectId) {
+  return state.projects.find((project) => project.id === projectId)?.name ?? "本地项目";
+}
+
+function statusLabel(status) {
+  return {
+    starting: "正在启动",
+    running: "正在执行",
+    approval: "等待批准",
+    stopping: "正在停止",
+    completed: "已完成",
+    interrupted: "已停止",
+    failed: "执行失败",
+    unknown: "状态未知",
+  }[status] ?? "状态未知";
+}
+
+function dotClass(status) {
+  return ["running", "starting"].includes(status) ? "ready" : status === "failed" ? "offline" : status === "approval" ? "offline" : "";
+}
+
+function relativeTime(value) {
+  const elapsed = Math.max(0, Date.now() - Number(value));
+  if (elapsed < 60_000) return "刚刚";
+  if (elapsed < 3_600_000) return `${Math.round(elapsed / 60_000)} 分钟前`;
+  if (elapsed < 86_400_000) return `${Math.round(elapsed / 3_600_000)} 小时前`;
+  return `${Math.round(elapsed / 86_400_000)} 天前`;
+}
+
+async function request(url, options = {}) {
+  const init = {
+    credentials: "same-origin",
+    headers: { Accept: "application/json", ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers ?? {}) },
+    ...options,
+  };
+  if (options.body && typeof options.body !== "string") init.body = JSON.stringify(options.body);
+  const response = await fetch(url, init);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(body.error ?? `Request failed (${response.status}).`);
+    error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+
+function showToast(message) {
+  el.toast.textContent = message;
+  el.toast.hidden = false;
+  window.clearTimeout(showToast.timer);
+  showToast.timer = window.setTimeout(() => {
+    el.toast.hidden = true;
+  }, 4_000);
+}

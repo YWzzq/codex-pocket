@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#121513" />
+    <title>Codex Pocket</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section id="pairView" class="pair-view" hidden>
+        <div class="brand-lockup">
+          <span class="mark" aria-hidden="true">C</span>
+          <span>Codex Pocket</span>
+        </div>
+        <div class="pair-copy">
+          <p class="eyebrow">LOCAL CODEX</p>
+          <h1>连接你的电脑</h1>
+          <p id="pairHint">输入电脑上显示的配对码。</p>
+        </div>
+        <form id="pairForm" class="pair-form">
+          <label class="field-label" for="pairCode">配对码</label>
+          <input id="pairCode" class="pair-code" autocomplete="one-time-code" autocapitalize="characters" maxlength="11" placeholder="ABCDE-12345" />
+          <button class="button primary" type="submit">连接</button>
+          <p id="pairError" class="form-error" role="alert"></p>
+        </form>
+        <section id="localPairing" class="local-pairing" hidden>
+          <img id="pairQr" alt="配对二维码" />
+          <p id="localPairCode" class="local-code"></p>
+          <p id="localPairNotice" class="muted"></p>
+        </section>
+      </section>
+
+      <section id="workspaceView" class="workspace" hidden>
+        <header class="topbar">
+          <div class="host-status">
+            <span id="connectionDot" class="status-dot offline"></span>
+            <div>
+              <strong id="hostName">本地电脑</strong>
+              <span id="connectionLabel">正在连接</span>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <button id="pairButton" class="button secondary compact" type="button">手机配对</button>
+            <button id="sessionButton" class="button secondary compact" type="button">连接管理</button>
+            <button id="logoutButton" class="icon-button" type="button" aria-label="断开此浏览器">×</button>
+          </div>
+        </header>
+
+        <section class="project-bar" aria-label="当前项目">
+          <label for="projectSelect">项目</label>
+          <select id="projectSelect"></select>
+        </section>
+
+        <section class="task-header">
+          <div>
+            <p class="eyebrow">任务</p>
+            <h1 id="taskHeading">所有任务</h1>
+          </div>
+          <button id="newTaskButton" class="button primary compact" type="button">新任务</button>
+        </section>
+
+        <section id="taskList" class="task-list" aria-live="polite"></section>
+
+        <section id="detailView" class="detail-view" hidden>
+          <div class="detail-topline">
+            <button id="backButton" class="text-button" type="button">‹ 全部任务</button>
+            <button id="interruptButton" class="icon-button pause" type="button" aria-label="停止当前任务">Ⅱ</button>
+          </div>
+          <div class="detail-title-row">
+            <div>
+              <h2 id="detailTitle"></h2>
+              <p id="detailMeta" class="muted"></p>
+            </div>
+            <span id="detailStatus" class="status-label"></span>
+          </div>
+          <div id="timeline" class="timeline" aria-live="polite"></div>
+        </section>
+
+        <form id="composer" class="composer">
+          <textarea id="promptInput" rows="3" maxlength="16000" placeholder="告诉 Codex 要完成什么"></textarea>
+          <div class="composer-actions">
+            <span id="composerContext" class="muted">将在所选项目中开始新任务</span>
+            <button id="sendButton" class="button primary send" type="submit" aria-label="发送任务">发送</button>
+          </div>
+        </form>
+
+        <nav class="bottom-nav" aria-label="导航">
+          <button class="nav-item active" type="button">任务</button>
+          <button id="deviceButton" class="nav-item" type="button">设备</button>
+        </nav>
+      </section>
+    </main>
+
+    <section id="pairDialog" class="pair-dialog" hidden aria-live="polite">
+      <div class="sheet-backdrop" data-close-pair></div>
+      <div class="pair-dialog-content" role="dialog" aria-modal="true" aria-labelledby="pairDialogTitle">
+        <div class="pair-dialog-header">
+          <div>
+            <p class="eyebrow">手机访问</p>
+            <h2 id="pairDialogTitle">连接这台电脑</h2>
+          </div>
+          <button class="icon-button" type="button" aria-label="关闭手机配对" data-close-pair>×</button>
+        </div>
+        <p class="muted">在手机浏览器打开 <strong>codex.dogbot.cc.cd</strong>，输入下面的配对码。</p>
+        <img id="workspacePairQr" class="workspace-pair-qr" alt="手机配对二维码" />
+        <p id="workspacePairCode" class="workspace-pair-code">正在生成配对码…</p>
+        <p id="workspacePairNotice" class="muted"></p>
+      </div>
+    </section>
+
+    <section id="sessionDialog" class="pair-dialog" hidden aria-live="polite">
+      <div class="sheet-backdrop" data-close-sessions></div>
+      <div class="session-dialog-content" role="dialog" aria-modal="true" aria-labelledby="sessionDialogTitle">
+        <div class="pair-dialog-header">
+          <div>
+            <p class="eyebrow">本机管理</p>
+            <h2 id="sessionDialogTitle">连接管理</h2>
+          </div>
+          <button class="icon-button" type="button" aria-label="关闭连接管理" data-close-sessions>×</button>
+        </div>
+        <p class="muted">这里管理已配对的手机和浏览器。断开后，对方会立即回到配对页。</p>
+        <div class="session-toolbar">
+          <span id="sessionCount" class="muted"></span>
+          <button id="revokeAllButton" class="button secondary compact" type="button">断开其他全部</button>
+        </div>
+        <div id="sessionList" class="session-list" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section id="approvalSheet" class="approval-sheet" hidden aria-live="assertive">
+      <div class="sheet-backdrop"></div>
+      <div class="sheet-content" role="dialog" aria-modal="true" aria-labelledby="approvalTitle">
+        <p class="eyebrow warning">需要你的批准</p>
+        <h2 id="approvalTitle">Codex 请求操作</h2>
+        <p id="approvalReason" class="muted"></p>
+        <pre id="approvalCommand" class="command-preview"></pre>
+        <p id="approvalPath" class="path-preview"></p>
+        <div class="sheet-actions">
+          <button id="approvalAllow" class="button primary" type="button">仅本次允许</button>
+          <button id="approvalDeny" class="button secondary" type="button">拒绝</button>
+          <button id="approvalStop" class="text-button danger" type="button">停止任务</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
