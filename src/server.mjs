@@ -52,6 +52,7 @@ let invitation = createInvitation();
 const sessions = new Map();
 const approvals = new Map();
 const activeTurns = new Map();
+const pendingTurnStarts = new Set();
 const loadedThreads = new Set();
 let bridge;
 let modelCache = { loadedAt: 0, models: [] };
@@ -408,25 +409,37 @@ async function shutdown() {
 }
 
 async function startTurn(thread, prompt) {
-  const result = await bridge.request("turn/start", {
-    threadId: thread.id,
-    cwd: thread.cwd,
-    approvalPolicy: "on-request",
-    input: [{ type: "text", text: prompt, text_elements: [] }],
-    sandboxPolicy: workspacePolicy(thread.cwd),
-    ...turnStartSettings(thread),
-  });
-  const turnId = result?.turn?.id;
-  if (typeof turnId !== "string" || turnId.length === 0) {
-    throw new Error("Codex did not return a turn id.");
+  if (pendingTurnStarts.has(thread.id) || activeTurns.has(thread.id) || thread.activeTurnId || ["running", "approval", "stopping"].includes(thread.status)) {
+    throw threadBusyError();
   }
-  activeTurns.set(thread.id, turnId);
-  await updateThread(thread.id, {
-    status: "running",
-    activeTurnId: turnId,
-    updatedAt: Date.now(),
-  });
-  return { id: turnId };
+
+  pendingTurnStarts.add(thread.id);
+  try {
+    const result = await bridge.request("turn/start", {
+      threadId: thread.id,
+      cwd: thread.cwd,
+      approvalPolicy: "on-request",
+      input: [{ type: "text", text: prompt, text_elements: [] }],
+      sandboxPolicy: workspacePolicy(thread.cwd),
+      ...turnStartSettings(thread),
+    });
+    const turnId = result?.turn?.id;
+    if (typeof turnId !== "string" || turnId.length === 0) {
+      throw new Error("Codex did not return a turn id.");
+    }
+    activeTurns.set(thread.id, turnId);
+    await updateThread(thread.id, {
+      status: "running",
+      activeTurnId: turnId,
+      updatedAt: Date.now(),
+    });
+    return { id: turnId };
+  } catch (error) {
+    if (/already has an active writer/i.test(error?.message ?? "")) throw threadBusyError(true);
+    throw error;
+  } finally {
+    pendingTurnStarts.delete(thread.id);
+  }
 }
 
 async function getModelCatalog() {
@@ -1036,6 +1049,14 @@ function validatePrompt(value) {
     throw error;
   }
   return prompt;
+}
+
+function threadBusyError(stale = false) {
+  const error = new Error(stale
+    ? "这个任务仍被 Codex 占用，请在原设备停止任务，或重启电脑端服务后再发送。"
+    : "这个任务正在由另一台设备执行，请等待完成后再发送。" );
+  error.statusCode = 409;
+  return error;
 }
 
 function makeTitle(prompt) {

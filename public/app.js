@@ -737,10 +737,14 @@ function renderTimeline(threadId) {
 
 function renderComposer() {
   const thread = selectedThread();
-  el.composerContext.textContent = thread
-    ? `${projectName(thread.projectId)} · 继续当前任务`
-    : `${selectedProject()?.name ?? "未选择项目"} · 开始新任务`;
-  el.sendButton.disabled = state.sendPending || state.projects.length === 0;
+  const threadBusy = Boolean(thread && isActiveTask(thread.status));
+  el.composerContext.textContent = threadBusy
+    ? `${projectName(thread.projectId)} · 任务执行中，完成后可继续`
+    : thread
+      ? `${projectName(thread.projectId)} · 继续当前任务`
+      : `${selectedProject()?.name ?? "未选择项目"} · 开始新任务`;
+  el.sendButton.disabled = state.sendPending || threadBusy || state.projects.length === 0;
+  el.promptInput.disabled = state.sendPending || threadBusy;
 }
 
 function renderApproval() {
@@ -775,6 +779,10 @@ async function sendPrompt(prompt) {
   const project = selectedProject();
   if (!selected && !project) {
     showToast("先选择一个项目");
+    return;
+  }
+  if (selected && isActiveTask(selected.status)) {
+    showToast("这个任务正在执行，请等待完成后再发送。");
     return;
   }
   state.sendPending = true;
