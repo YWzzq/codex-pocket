@@ -65,7 +65,7 @@ const el = {
 
 void boot();
 
-el.pairButton.hidden = !["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
+el.pairButton.hidden = !isLocalBrowser();
 el.sessionButton.hidden = el.pairButton.hidden;
 
 el.pairForm.addEventListener("submit", async (event) => {
@@ -164,8 +164,22 @@ async function boot() {
   try {
     await loadWorkspace();
   } catch (error) {
+    if (error.status === 401 && isLocalBrowser()) {
+      try {
+        await request("/api/local-session", { method: "POST" });
+        await loadWorkspace();
+        return;
+      } catch (localError) {
+        showPairing(localError.message);
+        return;
+      }
+    }
     showPairing(error.status === 401 ? "输入电脑上显示的配对码。" : error.message);
   }
+}
+
+function isLocalBrowser() {
+  return ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
 }
 
 async function pair(payload, loadAfter = true) {

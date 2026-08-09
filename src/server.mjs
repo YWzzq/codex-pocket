@@ -121,18 +121,19 @@ app.post("/api/pair", (req, res, next) => {
     return;
   }
 
-  const now = Date.now();
-  const rawDeviceToken = crypto.randomBytes(32).toString("base64url");
-  const device = await deviceRegistry.add({
-    id: crypto.randomUUID(),
-    tokenHash: hashSecret(rawDeviceToken),
-    createdAt: now,
-    lastSeenAt: now,
-    device: describeUserAgent(req.headers["user-agent"]),
-  });
-  createSession(rawDeviceToken, device);
+  const { rawToken, device } = await authorizeDevice(req);
   invitation = createInvitation();
-  setSessionCookie(req, res, rawDeviceToken);
+  setSessionCookie(req, res, rawToken);
+  res.json({ ok: true, deviceId: device.id });
+}));
+
+app.post("/api/local-session", requireLocalAdmin, asyncHandler(async (req, res) => {
+  if (req.session) {
+    res.json({ ok: true, deviceId: req.session.deviceId, existing: true });
+    return;
+  }
+  const { rawToken, device } = await authorizeDevice(req, `${describeUserAgent(req.headers["user-agent"])}（本机）`);
+  setSessionCookie(req, res, rawToken);
   res.json({ ok: true, deviceId: device.id });
 }));
 
@@ -748,6 +749,20 @@ function createSession(rawToken, device) {
   };
   sessions.set(hashSecret(rawToken), session);
   return session;
+}
+
+async function authorizeDevice(req, deviceLabel = describeUserAgent(req.headers["user-agent"])) {
+  const rawToken = crypto.randomBytes(32).toString("base64url");
+  const now = Date.now();
+  const device = await deviceRegistry.add({
+    id: crypto.randomUUID(),
+    tokenHash: hashSecret(rawToken),
+    createdAt: now,
+    lastSeenAt: now,
+    device: deviceLabel,
+  });
+  createSession(rawToken, device);
+  return { rawToken, device };
 }
 
 async function revokeDevice(deviceId) {
