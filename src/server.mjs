@@ -17,12 +17,14 @@ const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const PUBLIC_DIR = path.join(PROJECT_ROOT, "public");
 const RUNTIME_DIR = path.join(PROJECT_ROOT, ".codex-pocket");
 const THREADS_FILE = path.join(RUNTIME_DIR, "threads.json");
+const DEVICES_FILE = path.join(RUNTIME_DIR, "devices.json");
 const PORT = parsePort(process.env.PORT ?? "8787");
 const HOST = process.env.HOST ?? "127.0.0.1";
 const CODEX_BIN = process.env.CODEX_BIN ?? "codex";
 const INVITATION_TTL_MS = 5 * 60 * 1000;
 const SESSION_IDLE_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_ABSOLUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DEVICE_COOKIE_MAX_AGE_MS = 10 * 365 * 24 * 60 * 60 * 1000;
 const MAX_PROMPT_LENGTH = 16_000;
 const MAX_THREADS = 80;
 const LOCAL_ORIGINS = new Set([
@@ -46,6 +48,7 @@ const projects = allowedRoots.map((cwd) => ({
 }));
 const projectById = new Map(projects.map((project) => [project.id, project]));
 let registry;
+let deviceRegistry;
 
 let invitation = createInvitation();
 const sessions = new Map();
@@ -118,22 +121,24 @@ app.post("/api/pair", (req, res, next) => {
     return;
   }
 
-  const rawSessionToken = crypto.randomBytes(32).toString("base64url");
   const now = Date.now();
-  sessions.set(hashSecret(rawSessionToken), {
+  const rawDeviceToken = crypto.randomBytes(32).toString("base64url");
+  const device = await deviceRegistry.add({
     id: crypto.randomUUID(),
+    tokenHash: hashSecret(rawDeviceToken),
     createdAt: now,
     lastSeenAt: now,
-    expiresAt: now + SESSION_ABSOLUTE_TTL_MS,
     device: describeUserAgent(req.headers["user-agent"]),
   });
+  createSession(rawDeviceToken, device);
   invitation = createInvitation();
-  setSessionCookie(req, res, rawSessionToken);
-  res.json({ ok: true });
+  setSessionCookie(req, res, rawDeviceToken);
+  res.json({ ok: true, deviceId: device.id });
 }));
 
 app.post("/api/logout", requireSession, (req, res) => {
   sessions.delete(req.session.key);
+  closeSocketsForSession(req.session.id, "This browser logged out.");
   clearSessionCookie(req, res);
   res.json({ ok: true });
 });
@@ -142,28 +147,25 @@ app.get("/api/admin/sessions", requireLocalAdmin, (req, res) => {
   res.json({ sessions: listSessions(req.session?.id) });
 });
 
-app.post("/api/admin/sessions/revoke-all", requireLocalAdmin, (req, res) => {
-  const keepSessionId = req.session?.id ?? null;
-  let revoked = 0;
-  for (const [key, session] of sessions) {
-    if (session.id === keepSessionId) continue;
-    sessions.delete(key);
-    closeSocketsForSession(session.id, "Disconnected from the local computer.");
-    revoked += 1;
-  }
+app.post("/api/admin/sessions/revoke-all", requireLocalAdmin, asyncHandler(async (req, res) => {
+  const keepDeviceId = req.session?.deviceId ?? null;
+  const revoked = await revokeAllDevicesExcept(keepDeviceId);
   res.json({ ok: true, revoked });
-});
+}));
 
-app.post("/api/admin/sessions/:sessionId/revoke", requireLocalAdmin, (req, res) => {
-  const session = findSessionById(req.params.sessionId);
-  if (!session) {
-    res.status(404).json({ error: "That connection is no longer active." });
+app.post("/api/admin/sessions/:sessionId/revoke", requireLocalAdmin, asyncHandler(async (req, res) => {
+  const device = deviceRegistry.get(req.params.sessionId);
+  if (!device || device.revokedAt) {
+    res.status(404).json({ error: "That device authorization is no longer active." });
     return;
   }
-  sessions.delete(session.key);
-  closeSocketsForSession(session.id, "Disconnected from the local computer.");
+  if (device.id === req.session?.deviceId) {
+    res.status(409).json({ error: "The current computer session cannot be revoked here." });
+    return;
+  }
+  await revokeDevice(device.id);
   res.json({ ok: true });
-});
+}));
 
 app.get("/api/session", requireSession, (req, res) => {
   res.json({
@@ -676,9 +678,17 @@ function getSession(req) {
   const raw = readCookie(req.headers.cookie, "codex_pocket");
   if (!raw) return null;
   const key = hashSecret(raw);
-  const session = sessions.get(key);
-  if (!session) return null;
+  let session = sessions.get(key);
+  const device = deviceRegistry.getByTokenHash(key);
+  if (!device || device.revokedAt) {
+    sessions.delete(key);
+    return null;
+  }
+  if (!session) session = createSession(raw, device);
   session.lastSeenAt = Date.now();
+  if (session.lastSeenAt - device.lastSeenAt > 60 * 1000) {
+    void deviceRegistry.touch(device.id, session.lastSeenAt).catch((error) => console.error("Could not update device activity:", error));
+  }
   return { key, ...session };
 }
 
@@ -688,7 +698,7 @@ function setSessionCookie(req, res, token) {
     httpOnly: true,
     sameSite: "strict",
     secure,
-    maxAge: SESSION_ABSOLUTE_TTL_MS,
+    maxAge: DEVICE_COOKIE_MAX_AGE_MS,
     path: "/",
   });
 }
@@ -707,23 +717,56 @@ function cleanupSessions() {
 
 function listSessions(currentSessionId = null) {
   cleanupSessions();
-  return [...sessions.values()]
-    .sort((left, right) => right.lastSeenAt - left.lastSeenAt)
-    .map((session) => ({
-      id: session.id,
-      device: session.device,
-      createdAt: session.createdAt,
-      lastSeenAt: session.lastSeenAt,
-      expiresAt: session.expiresAt,
-      current: session.id === currentSessionId,
-    }));
+  const activeByDeviceId = new Map();
+  for (const session of sessions.values()) {
+    const current = activeByDeviceId.get(session.deviceId);
+    if (!current || current.lastSeenAt < session.lastSeenAt) activeByDeviceId.set(session.deviceId, session);
+  }
+  return deviceRegistry.list().map((device) => {
+    const session = activeByDeviceId.get(device.id);
+    return {
+      id: device.id,
+      device: device.device,
+      createdAt: device.createdAt,
+      lastSeenAt: Math.max(device.lastSeenAt, session?.lastSeenAt ?? 0),
+      expiresAt: null,
+      active: Boolean(session),
+      current: session?.id === currentSessionId,
+    };
+  });
 }
 
-function findSessionById(id) {
+function createSession(rawToken, device) {
+  const now = Date.now();
+  const session = {
+    id: crypto.randomUUID(),
+    deviceId: device.id,
+    createdAt: now,
+    lastSeenAt: now,
+    expiresAt: now + SESSION_ABSOLUTE_TTL_MS,
+    device: device.device,
+  };
+  sessions.set(hashSecret(rawToken), session);
+  return session;
+}
+
+async function revokeDevice(deviceId) {
+  await deviceRegistry.revoke(deviceId);
   for (const [key, session] of sessions) {
-    if (session.id === id) return { key, ...session };
+    if (session.deviceId !== deviceId) continue;
+    sessions.delete(key);
+    closeSocketsForSession(session.id, "This device authorization was revoked.");
   }
-  return null;
+}
+
+async function revokeAllDevicesExcept(keepDeviceId) {
+  let revoked = 0;
+  for (const device of deviceRegistry.list()) {
+    if (device.id === keepDeviceId) continue;
+    await revokeDevice(device.id);
+    revoked += 1;
+  }
+  return revoked;
 }
 
 function describeUserAgent(userAgent) {
@@ -732,7 +775,7 @@ function describeUserAgent(userAgent) {
   if (/Android/i.test(value)) return "Android 浏览器";
   if (/Macintosh/i.test(value)) return "Mac 浏览器";
   if (/Windows/i.test(value)) return "Windows 浏览器";
-  return value ? "其他浏览器" : "未知设备";
+  return value ? value.slice(0, 120) : "未知设备";
 }
 
 function isAllowedBrowserOrigin(req) {
@@ -936,6 +979,85 @@ class RollingLimiter {
 
 const pairingAttempts = new RollingLimiter(5, 60 * 1000);
 
+class DeviceRegistry {
+  constructor(file) {
+    this.file = file;
+    this.records = new Map();
+    this.saveQueue = Promise.resolve();
+  }
+
+  async load() {
+    await fs.mkdir(path.dirname(this.file), { recursive: true, mode: 0o700 });
+    try {
+      const raw = await fs.readFile(this.file, "utf8");
+      const parsed = JSON.parse(raw);
+      for (const record of Array.isArray(parsed?.devices) ? parsed.devices : []) {
+        if (
+          typeof record?.id === "string" &&
+          typeof record?.tokenHash === "string" &&
+          typeof record?.createdAt === "number" &&
+          typeof record?.lastSeenAt === "number" &&
+          typeof record?.device === "string"
+        ) {
+          this.records.set(record.id, record);
+        }
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+
+  get(id) {
+    return this.records.get(id) ?? null;
+  }
+
+  getByTokenHash(tokenHash) {
+    for (const record of this.records.values()) {
+      if (!record.revokedAt && record.tokenHash === tokenHash) return record;
+    }
+    return null;
+  }
+
+  list() {
+    return [...this.records.values()]
+      .filter((record) => !record.revokedAt)
+      .sort((left, right) => right.lastSeenAt - left.lastSeenAt);
+  }
+
+  async add(record) {
+    this.records.set(record.id, record);
+    await this.save();
+    return record;
+  }
+
+  async touch(id, lastSeenAt) {
+    const record = this.records.get(id);
+    if (!record || record.revokedAt) return;
+    record.lastSeenAt = lastSeenAt;
+    await this.save();
+  }
+
+  async revoke(id) {
+    const record = this.records.get(id);
+    if (!record || record.revokedAt) return false;
+    record.revokedAt = Date.now();
+    await this.save();
+    return true;
+  }
+
+  async save() {
+    const write = this.saveQueue.then(async () => {
+      const temp = `${this.file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+      const body = JSON.stringify({ version: 1, devices: [...this.records.values()] }, null, 2);
+      await fs.writeFile(temp, body, { encoding: "utf8", mode: 0o600 });
+      await fs.rename(temp, this.file);
+      await fs.chmod(this.file, 0o600);
+    });
+    this.saveQueue = write.catch(() => undefined);
+    return write;
+  }
+}
+
 class ThreadRegistry {
   constructor(file, roots) {
     this.file = file;
@@ -1132,4 +1254,6 @@ class CodexBridge extends EventEmitter {
 
 registry = new ThreadRegistry(THREADS_FILE, new Set(allowedRoots));
 await registry.load();
+deviceRegistry = new DeviceRegistry(DEVICES_FILE);
+await deviceRegistry.load();
 await startServer();

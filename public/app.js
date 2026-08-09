@@ -195,7 +195,7 @@ async function showLocalPairing() {
     el.pairQr.src = setup.qrDataUrl;
     el.localPairCode.textContent = `配对码：${setup.pairingCode}`;
     el.localPairNotice.textContent = setup.publicReachable
-      ? "扫描二维码即可在手机上配对。"
+      ? "扫描二维码即可配对；首次配对后会保持授权，直到你在电脑端撤销。"
       : "先配置 HTTPS 访问地址，再从手机扫描二维码。";
   } catch {
     el.localPairing.hidden = true;
@@ -210,7 +210,7 @@ async function showPairDialog() {
     el.workspacePairQr.src = setup.qrDataUrl;
     el.workspacePairCode.textContent = `配对码：${setup.pairingCode}`;
     el.workspacePairNotice.textContent = setup.publicReachable
-      ? "二维码有效期五分钟，手机和电脑不需要连接同一个 Wi-Fi。"
+      ? "二维码有效期五分钟；首次配对后会保持授权，直到你在电脑端撤销。"
       : "配置 HTTPS 访问地址后，手机才能通过二维码连接。";
   } catch (error) {
     el.workspacePairCode.textContent = "无法生成配对码";
@@ -240,13 +240,13 @@ async function showSessionDialog() {
 
 function renderSessions() {
   const sessions = state.sessions;
-  el.sessionCount.textContent = `${sessions.length} 个连接`;
+  el.sessionCount.textContent = `${sessions.length} 个已授权设备`;
   el.revokeAllButton.disabled = sessions.every((session) => session.current);
   el.sessionList.replaceChildren();
   if (sessions.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = "当前没有已配对的设备。";
+    empty.textContent = "当前没有已授权的设备。";
     el.sessionList.append(empty);
     return;
   }
@@ -258,12 +258,12 @@ function renderSessions() {
     const title = document.createElement("strong");
     title.textContent = session.current ? `${session.device}（当前电脑）` : session.device;
     const meta = document.createElement("span");
-    meta.textContent = `最近活动：${formatSessionTime(session.lastSeenAt)} · 创建于 ${formatSessionTime(session.createdAt)}`;
+    meta.textContent = `${session.active ? "在线" : "已授权 · 当前未连接"} · 最近活动：${formatSessionTime(session.lastSeenAt)} · 授权于 ${formatSessionTime(session.createdAt)}`;
     copy.append(title, meta);
     const revoke = document.createElement("button");
     revoke.className = "button secondary compact";
     revoke.type = "button";
-    revoke.textContent = session.current ? "当前会话" : "断开";
+    revoke.textContent = session.current ? "当前会话" : "撤销授权";
     revoke.disabled = session.current;
     revoke.addEventListener("click", () => void revokeSession(session));
     row.append(copy, revoke);
@@ -272,7 +272,7 @@ function renderSessions() {
 }
 
 async function revokeSession(session) {
-  if (!window.confirm(`确定断开“${session.device}”吗？`)) return;
+  if (!window.confirm(`确定撤销“${session.device}”的授权吗？`)) return;
   try {
     await request(`/api/admin/sessions/${encodeURIComponent(session.id)}/revoke`, { method: "POST" });
     await showSessionDialog();
@@ -282,7 +282,7 @@ async function revokeSession(session) {
 }
 
 async function revokeAllSessions() {
-  if (!window.confirm("确定断开其他所有手机和浏览器吗？")) return;
+  if (!window.confirm("确定撤销其他所有手机和浏览器的授权吗？")) return;
   try {
     await request("/api/admin/sessions/revoke-all", { method: "POST" });
     await showSessionDialog();
