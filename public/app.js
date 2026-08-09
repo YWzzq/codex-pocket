@@ -333,8 +333,14 @@ function renderProjectCandidates() {
     const name = document.createElement("strong");
     name.textContent = candidate.name;
     const pathText = document.createElement("small");
-    pathText.textContent = candidate.cwd;
+    const threadCount = Number(candidate.threadCount ?? 0);
+    pathText.textContent = `${threadCount} 条历史对话 · ${candidate.cwd}`;
     copy.append(name, pathText);
+    if (candidate.sampleTitle) {
+      const sample = document.createElement("small");
+      sample.textContent = `最近：${candidate.sampleTitle}`;
+      copy.append(sample);
+    }
     label.append(checkbox, copy);
     el.projectCandidateList.append(label);
   }

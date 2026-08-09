@@ -143,14 +143,14 @@
           </div>
           <button class="icon-button" type="button" aria-label="关闭项目管理" data-close-projects>×</button>
         </div>
-        <p class="muted">只允许访问下面列出的目录及其子目录。保存后手机会同步这些项目和历史任务。</p>
+        <p class="muted">下面是 Codex 历史线程中发现的项目。勾选后，手机可以加载该项目的历史对话并继续任务。</p>
         <div class="project-candidate-toolbar">
-          <strong>发现的本地项目</strong>
+          <strong>Codex 项目</strong>
           <button id="refreshCandidatesButton" class="button secondary compact" type="button">重新扫描</button>
         </div>
         <div id="projectCandidateList" class="project-candidate-list" aria-live="polite"></div>
         <form id="projectForm" class="project-form">
-          <label class="field-label" for="projectPathInput">手动添加目录（可选）</label>
+          <label class="field-label" for="projectPathInput">高级：手动添加 Codex 项目工作目录（可选）</label>
           <div class="project-add-row">
             <input id="projectPathInput" class="project-path-input" placeholder="/Users/你的用户名/项目" autocomplete="off" />
             <button class="button secondary compact" type="submit">添加</button>

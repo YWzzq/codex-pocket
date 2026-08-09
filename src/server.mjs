@@ -1162,61 +1162,45 @@ async function validateProjectRoots(rawRoots) {
 }
 
 async function discoverProjectCandidates() {
-  const scanRoots = [...new Set(allowedRoots.map((root) => path.dirname(root)))];
+  await bridge.start();
+  const result = await bridge.request("thread/list", { limit: 200 });
   const candidates = new Map();
-  for (const scanRoot of scanRoots) {
-    let entries;
-    try {
-      entries = await fs.readdir(scanRoot, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith(".")) continue;
-      if (["node_modules", "tmp", "dist", "build"].includes(entry.name)) continue;
-      const cwd = path.join(scanRoot, entry.name);
-      const hasMarker = await directoryLooksLikeProject(cwd);
-      if (!hasMarker && !allowedRoots.includes(cwd)) continue;
-      candidates.set(cwd, {
-        id: shortHash(cwd),
-        name: entry.name,
-        cwd,
-        selected: allowedRoots.includes(cwd),
-        kind: hasMarker ? "project" : "directory",
-      });
-    }
+  for (const summary of Array.isArray(result?.data) ? result.data : []) {
+    if (summary?.ephemeral || typeof summary?.cwd !== "string") continue;
+    const cwd = await fs.realpath(summary.cwd).catch(() => null);
+    const details = cwd ? await fs.stat(cwd).catch(() => null) : null;
+    if (!cwd || !details?.isDirectory()) continue;
+    const current = candidates.get(cwd) ?? {
+      id: shortHash(cwd),
+      name: path.basename(cwd) || cwd,
+      cwd,
+      selected: allowedRoots.includes(cwd),
+      kind: "codexProject",
+      threadCount: 0,
+      lastUpdatedAt: 0,
+      sampleTitle: "",
+    };
+    current.threadCount += 1;
+    current.lastUpdatedAt = Math.max(current.lastUpdatedAt, toMillis(summary.updatedAt), toMillis(summary.recencyAt));
+    if (!current.sampleTitle && typeof summary.name === "string" && summary.name.trim()) current.sampleTitle = makeTitle(summary.name);
+    if (!current.sampleTitle && typeof summary.preview === "string" && summary.preview.trim()) current.sampleTitle = makeTitle(summary.preview);
+    candidates.set(cwd, current);
   }
   for (const cwd of allowedRoots) {
     if (!candidates.has(cwd)) {
-      candidates.set(cwd, { id: shortHash(cwd), name: path.basename(cwd) || cwd, cwd, selected: true, kind: "project" });
+      candidates.set(cwd, {
+        id: shortHash(cwd),
+        name: path.basename(cwd) || cwd,
+        cwd,
+        selected: true,
+        kind: "configured",
+        threadCount: 0,
+        lastUpdatedAt: 0,
+        sampleTitle: "",
+      });
     }
   }
-  return [...candidates.values()].sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
-}
-
-async function directoryLooksLikeProject(cwd) {
-  const markers = [
-    ".git",
-    "package.json",
-    "pyproject.toml",
-    "requirements.txt",
-    "Cargo.toml",
-    "go.mod",
-    "pom.xml",
-    "Makefile",
-    "README.md",
-    "hugo.toml",
-    "config.toml",
-  ];
-  for (const marker of markers) {
-    try {
-      await fs.access(path.join(cwd, marker));
-      return true;
-    } catch {
-      // Try the next common project marker.
-    }
-  }
-  return false;
+  return [...candidates.values()].sort((left, right) => right.lastUpdatedAt - left.lastUpdatedAt || left.name.localeCompare(right.name, "zh-CN"));
 }
 
 function applyAllowedRoots(roots) {
