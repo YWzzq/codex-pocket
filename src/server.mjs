@@ -191,9 +191,10 @@ app.get("/api/projects", requireSession, (req, res) => {
   res.json({ projects: projects.map(publicProject) });
 });
 
-app.get("/api/threads", requireSession, (req, res) => {
+app.get("/api/threads", requireSession, asyncHandler(async (req, res) => {
+  await syncCodexThreads();
   res.json({ threads: registry.list().map(publicThread) });
-});
+}));
 
 app.get("/api/threads/:threadId", requireSession, asyncHandler(async (req, res) => {
   const thread = requireOwnedThread(req.params.threadId);
@@ -497,6 +498,60 @@ function turnStartSettings(settings) {
   };
 }
 
+async function syncCodexThreads() {
+  await bridge.start();
+  const result = await bridge.request("thread/list", { limit: 100 });
+  const records = [];
+  for (const summary of Array.isArray(result?.data) ? result.data : []) {
+    if (summary?.ephemeral || typeof summary?.id !== "string" || typeof summary?.cwd !== "string") continue;
+    const project = projectForCwd(summary.cwd);
+    if (!project) continue;
+    const existing = registry.get(summary.id);
+    const summaryStatus = codexThreadStatus(summary.status?.type);
+    const status = existing && ["running", "starting", "approval", "stopping"].includes(existing.status) && summaryStatus === "completed"
+      ? existing.status
+      : summaryStatus;
+    records.push({
+      id: summary.id,
+      cwd: summary.cwd,
+      projectId: project.id,
+      title: existing?.title ?? makeTitle(typeof summary.name === "string" ? summary.name : typeof summary.preview === "string" ? summary.preview : "历史任务"),
+      status,
+      createdAt: existing?.createdAt ?? toMillis(summary.createdAt),
+      updatedAt: Math.max(existing?.updatedAt ?? 0, toMillis(summary.updatedAt), toMillis(summary.recencyAt)),
+      activeTurnId: existing?.activeTurnId ?? null,
+      model: existing?.model ?? (typeof summary.model === "string" ? summary.model : null),
+      effort: existing?.effort ?? null,
+      serviceTier: existing?.serviceTier ?? null,
+    });
+  }
+  await registry.upsertMany(records);
+}
+
+function projectForCwd(cwd) {
+  const resolved = path.resolve(cwd);
+  const exact = projects.find((project) => project.cwd === resolved);
+  if (exact) return exact;
+  return projects.find((project) => {
+    const relative = path.relative(project.cwd, resolved);
+    return relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+  }) ?? null;
+}
+
+function codexThreadStatus(type) {
+  if (["active", "inProgress", "running"].includes(type)) return "running";
+  if (["approval", "waitingForApproval"].includes(type)) return "approval";
+  if (["failed", "error", "systemError"].includes(type)) return "failed";
+  if (type === "interrupted") return "interrupted";
+  return "completed";
+}
+
+function toMillis(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return Date.now();
+  return number < 1_000_000_000_000 ? number * 1000 : number;
+}
+
 function workspacePolicy(cwd) {
   return {
     type: "workspaceWrite",
@@ -746,7 +801,7 @@ function extractItemText(item) {
 function requireOwnedThread(threadId) {
   const thread = registry.get(threadId);
   if (!thread) {
-    const error = new Error("This task was not created by Codex Pocket or is no longer available.");
+    const error = new Error("This task is outside the allowed projects or is no longer available.");
     error.statusCode = 404;
     throw error;
   }
@@ -1185,7 +1240,7 @@ class ThreadRegistry {
       const raw = await fs.readFile(this.file, "utf8");
       const parsed = JSON.parse(raw);
       for (const record of Array.isArray(parsed?.threads) ? parsed.threads : []) {
-        if (typeof record?.id === "string" && this.roots.has(record.cwd)) this.records.set(record.id, record);
+        if (typeof record?.id === "string" && this.isAllowedCwd(record.cwd)) this.records.set(record.id, record);
       }
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
@@ -1210,6 +1265,18 @@ class ThreadRegistry {
     return record;
   }
 
+  async upsertMany(records) {
+    let changed = false;
+    for (const record of records) {
+      if (!record?.id || !this.isAllowedCwd(record.cwd)) continue;
+      const previous = this.records.get(record.id);
+      if (JSON.stringify(previous) === JSON.stringify(record)) continue;
+      this.records.set(record.id, record);
+      changed = true;
+    }
+    if (changed) await this.save();
+  }
+
   async patch(id, patch) {
     const current = this.records.get(id);
     if (!current) return null;
@@ -1229,6 +1296,16 @@ class ThreadRegistry {
     });
     this.saveQueue = write.catch(() => undefined);
     return write;
+  }
+
+  isAllowedCwd(cwd) {
+    if (typeof cwd !== "string") return false;
+    const resolved = path.resolve(cwd);
+    for (const root of this.roots) {
+      const relative = path.relative(root, resolved);
+      if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) return true;
+    }
+    return false;
   }
 }
 
