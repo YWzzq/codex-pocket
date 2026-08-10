@@ -89,6 +89,21 @@
             </select>
           </label>
           <p class="model-notice">设置仅对新任务生效，继续已有任务会保持原模型。</p>
+          <section id="serverSettings" class="server-settings" hidden aria-label="服务器设置">
+            <div class="server-settings-heading">
+              <div>
+                <p class="eyebrow">Android App</p>
+                <h3>服务器地址</h3>
+              </div>
+              <span class="muted">仅 HTTPS</span>
+            </div>
+            <div class="server-settings-row">
+              <input id="serverUrlInput" type="url" inputmode="url" autocomplete="url" placeholder="https://your-domain.example" />
+              <button id="saveServerUrlButton" class="button secondary compact" type="button">保存并重启</button>
+            </div>
+            <button id="resetServerUrlButton" class="text-button" type="button">恢复默认地址</button>
+            <p id="serverUrlHint" class="model-notice">修改后 App 会重新连接新的服务器。只填写你信任的 HTTPS 域名。</p>
+          </section>
         </section>
 
         <section class="task-header">

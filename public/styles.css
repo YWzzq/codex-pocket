@@ -384,6 +384,42 @@ textarea:focus {
   font-size: 12px;
 }
 
+.server-settings {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 8px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(36, 51, 41, 0.34);
+}
+
+.server-settings-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.server-settings-heading h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.server-settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.server-settings-row input {
+  min-width: 0;
+}
+
+.server-settings .text-button {
+  justify-self: start;
+}
+
 .mobile-settings-heading {
   display: none;
 }

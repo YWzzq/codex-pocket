@@ -85,6 +85,11 @@ const el = {
   modelSelect: document.querySelector("#modelSelect"),
   reasoningSelect: document.querySelector("#reasoningSelect"),
   serviceTierSelect: document.querySelector("#serviceTierSelect"),
+  serverSettings: document.querySelector("#serverSettings"),
+  serverUrlInput: document.querySelector("#serverUrlInput"),
+  saveServerUrlButton: document.querySelector("#saveServerUrlButton"),
+  resetServerUrlButton: document.querySelector("#resetServerUrlButton"),
+  serverUrlHint: document.querySelector("#serverUrlHint"),
   bottomNav: document.querySelector("#bottomNav"),
   tasksNavButton: document.querySelector("#tasksNavButton"),
   settingsNavButton: document.querySelector("#settingsNavButton"),
@@ -139,6 +144,7 @@ const el = {
 
 void boot();
 void registerServiceWorker();
+void loadServerUrl();
 
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
@@ -186,6 +192,9 @@ el.reasoningSelect.addEventListener("change", () => {
 el.serviceTierSelect.addEventListener("change", () => {
   state.serviceTier = el.serviceTierSelect.value;
 });
+
+el.saveServerUrlButton.addEventListener("click", () => void saveServerUrl());
+el.resetServerUrlButton.addEventListener("click", () => void resetServerUrl());
 
 el.logoutButton.addEventListener("click", async () => {
   try {
@@ -296,6 +305,60 @@ el.taskAlertClose.addEventListener("click", () => hideTaskAlert());
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") stopTitleBlink();
 });
+
+function serverConfigPlugin() {
+  return globalThis.Capacitor?.Plugins?.ServerConfig ?? null;
+}
+
+async function loadServerUrl() {
+  const plugin = serverConfigPlugin();
+  if (!plugin) return;
+  el.serverSettings.hidden = false;
+  try {
+    const result = await plugin.get();
+    el.serverUrlInput.value = result.url ?? "";
+  } catch {
+    el.serverUrlHint.textContent = "无法读取当前服务器地址。";
+  }
+}
+
+function validServerUrl(value) {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash && ["", "/"].includes(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+async function saveServerUrl() {
+  const plugin = serverConfigPlugin();
+  const value = el.serverUrlInput.value.trim();
+  if (!plugin || !validServerUrl(value)) {
+    el.serverUrlHint.textContent = "请输入不带路径、参数或账号信息的 HTTPS 域名。";
+    return;
+  }
+  el.saveServerUrlButton.disabled = true;
+  el.serverUrlHint.textContent = "正在保存，App 即将重新连接…";
+  try {
+    await plugin.set({ url: value });
+  } catch (error) {
+    el.serverUrlHint.textContent = error?.message || "服务器地址保存失败。";
+    el.saveServerUrlButton.disabled = false;
+  }
+}
+
+async function resetServerUrl() {
+  const plugin = serverConfigPlugin();
+  if (!plugin) return;
+  el.resetServerUrlButton.disabled = true;
+  try {
+    await plugin.reset();
+  } catch (error) {
+    el.serverUrlHint.textContent = error?.message || "恢复默认地址失败。";
+    el.resetServerUrlButton.disabled = false;
+  }
+}
 
 async function boot() {
   const url = new URL(window.location.href);

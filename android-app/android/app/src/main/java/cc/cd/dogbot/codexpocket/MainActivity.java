@@ -11,7 +11,10 @@ import androidx.activity.OnBackPressedCallback;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
+import com.getcapacitor.CapConfig;
 import com.getcapacitor.BridgeActivity;
+
+import org.json.JSONObject;
 
 public class MainActivity extends BridgeActivity {
 
@@ -19,10 +22,43 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        registerPlugin(ServerConfigPlugin.class);
         super.onCreate(savedInstanceState);
         configureSystemBars();
         configureBackNavigation();
         configureWebView();
+    }
+
+    @Override
+    protected void load() {
+        CapConfig base = CapConfig.loadDefault(this);
+        String endpoint = ServerConfigPlugin.getSavedUrl(this);
+        if (endpoint == null) endpoint = base.getServerUrl();
+        if (endpoint == null) endpoint = ServerConfigPlugin.getDefaultUrl() + "/";
+
+        CapConfig.Builder builder = new CapConfig.Builder(this)
+            .setHTML5mode(base.isHTML5Mode())
+            .setServerUrl(endpoint)
+            .setErrorPath(base.getErrorPath())
+            .setHostname(base.getHostname())
+            .setStartPath(base.getStartPath())
+            .setAndroidScheme(base.getAndroidScheme())
+            .setAllowNavigation(new String[] { endpoint })
+            .setOverriddenUserAgentString(base.getOverriddenUserAgentString())
+            .setAppendedUserAgentString(base.getAppendedUserAgentString())
+            .setBackgroundColor(base.getBackgroundColor())
+            .setAllowMixedContent(base.isMixedContentAllowed())
+            .setCaptureInput(base.isInputCaptured())
+            .setUseLegacyBridge(base.isUsingLegacyBridge())
+            .setResolveServiceWorkerRequests(base.isResolveServiceWorkerRequests())
+            .setWebContentsDebuggingEnabled(base.isWebContentsDebuggingEnabled())
+            .setZoomableWebView(base.isZoomableWebView())
+            .setLoggingEnabled(base.isLoggingEnabled())
+            .setInitialFocus(base.isInitialFocus());
+        JSONObject plugins = base.getObject("plugins");
+        if (plugins != null) builder.setPluginsConfiguration(plugins);
+        config = builder.create();
+        super.load();
     }
 
     private void configureSystemBars() {

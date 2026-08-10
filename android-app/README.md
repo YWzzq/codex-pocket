@@ -4,6 +4,8 @@
 
 生产 App 默认打开 `https://codex.dogbot.cc.cd`，电脑端 Codex Pocket 和 Cloudflare Tunnel 需要在线。后续可以在这个目录逐步加入原生通知、文件选择和 Android 页面，而不影响现有网页版本。
 
+在 Android App 的“设置”页可以修改服务器地址。地址只接受 HTTPS 域名，不接受本机/IP、路径、查询参数或账号信息；保存后 App 会重启并连接新地址。服务器必须同时提供 Codex Pocket 网页、API 和 WebSocket。
+
 ## 构建
 
 ```bash
