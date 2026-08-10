@@ -1,295 +1,174 @@
 # Codex Pocket
 
-Codex Pocket 是一个手机优先的本地 Codex 控制台。手机只负责创建任务、查看进度、继续追问、停止任务和处理审批；实际工作仍由电脑上的 Codex、项目文件、登录状态和工具完成。
-
-它不是桌面 Codex 界面的远程镜像。架构如下：
+Codex Pocket 是一个手机优先的本地 Codex 控制台：
 
 ```text
-手机 App 或浏览器
-  -> Cloudflare Tunnel HTTPS
-  -> 电脑上的 Broker（127.0.0.1:8787）
-  -> codex app-server（stdio）
-  -> 电脑上的 Codex 与项目文件
+手机浏览器 / App
+  -> HTTPS（Cloudflare Tunnel）
+  -> 电脑上的 Codex Pocket（127.0.0.1:8787）
+  -> Codex app-server
+  -> 本机 Codex 与项目文件
 ```
 
-## 当前能力
+手机只负责发起任务、查看进度、继续对话、停止任务和处理审批；实际代码工作始终在电脑端完成。
 
-- 一次性二维码或配对码登录
-- 只允许选择预先配置的项目目录
-- 创建任务并接收 Codex 流式回复
-- 在手机端选择可用模型、推理强度和速度档位
-- 查看命令输出和任务活动
-- 在同一任务中继续发送指令
-- 停止运行中的任务
-- 在手机上批准或拒绝需要确认的操作
-- 加载允许项目中的 Codex 历史任务，并显示进行中、等待批准、已完成等状态
-- 在 Mac 本地页面管理已授权的手机和浏览器设备
+## 功能
 
-## 前置条件
+- 创建、继续、停止 Codex 任务，实时查看输出
+- 按项目查看历史对话和任务状态
+- 选择模型、推理强度和速度档位
+- 手机审批命令，电脑端管理设备授权和允许的项目
+- macOS、Windows 启动脚本，以及 Android App 工程
 
-- macOS 或 Windows 上已经安装并登录 Codex
-- Node.js 22 或更高版本
-- Mac 保持联网，并运行 Codex Pocket 与 Cloudflare Tunnel（远程访问时需要）
+## 环境要求
 
-确认环境：
+- macOS 或 Windows
+- 已安装并登录 Codex
+- Node.js 22+
+- 远程访问时需要 Cloudflare Tunnel 或其他 HTTPS 网关
+
+检查：
 
 ```bash
 node --version
 codex --version
 ```
 
-如果终端找不到 `codex`，可以在 `.env` 或启动命令中设置：
+## 快速开始
 
 ```bash
-CODEX_BIN=/Applications/ChatGPT.app/Contents/Resources/codex
-```
-
-## 本机启动
-
-```bash
-cd "/absolute/path/to/codex-pocket"
+git clone https://github.com/YWzzq/codex-pocket.git
+cd codex-pocket
 npm install
-```
-
-配置允许手机操作的项目目录。多个目录在 macOS 上用冒号分隔：
-
-```bash
-export CODEX_POCKET_ROOTS="/absolute/path/to/project-one:/absolute/path/to/project-two"
 npm start
 ```
 
-### Mac 后台服务
+然后在电脑浏览器打开：
 
-Mac 端可以把 Codex Pocket 注册为当前用户的 LaunchAgent。它会在登录后自动启动，并在进程异常退出时自动拉起；Cloudflare Tunnel 仍由独立的 `cloudflared` LaunchAgent 负责。
+- 工作区：<http://127.0.0.1:8787>
+- 部署向导：<http://127.0.0.1:8787/setup>
 
-先停止当前终端里运行的 `npm run dev` 或 `npm start`，再执行：
+部署向导会依次完成环境检查、填写公网地址和 Codex 路径、选择项目、检查 Tunnel、生成手机配对二维码。配置写入本机 .env，不会上传。
 
-```bash
-npm run macos:start
-```
+### 配置项目
 
-常用管理命令：
-
-```bash
-npm run macos:status     # 查看后台服务状态
-npm run macos:stop       # 停止服务但保留配置
-npm run macos:install    # 只生成 LaunchAgent 配置
-npm run macos:uninstall  # 停止并删除 LaunchAgent 配置
-```
-
-后台服务直接使用当前 Node 运行 `src/server.mjs`，并自动读取项目根目录的 `.env`；它不是另一套后端，手机 App 仍然连接同一个 `127.0.0.1:8787` 和 Cloudflare Tunnel。
-
-在电脑浏览器打开 [http://127.0.0.1:8787](http://127.0.0.1:8787)。本机浏览器会自动建立本机授权，不需要输入配对码；页面中的“手机配对”按钮用于生成手机的一次性二维码和配对码。首次手机配对成功后，手机会获得一个长期设备授权；之后只要电脑服务和公网入口在线，就不需要重复输入配对码。
-
-首次部署也可以直接打开本机的 [http://127.0.0.1:8787/setup](http://127.0.0.1:8787/setup) 使用五步 GUI 向导：环境检查 → 填写公网地址和 Codex 路径 → 勾选项目 → 检查 Tunnel → 生成手机配对二维码。向导会把基础配置和允许的项目写入本机 `.env`，不会上传；保存基础配置后需要重启服务才会生效。Cloudflare 登录、域名 DNS 和系统授权仍需按向导提示在终端或浏览器中完成。
-
-也可以复制示例配置：
+也可以手动复制配置模板：
 
 ```bash
 cp .env.example .env
 ```
 
-手动运行 `npm start` 时，当前版本不自动读取 `.env`，使用 `.env` 时先加载它：
+最常用配置：
 
-```bash
-set -a
-source .env
-set +a
-npm start
+```dotenv
+HOST=127.0.0.1
+PORT=8787
+PUBLIC_URL=https://your-domain.example
+CODEX_POCKET_ROOTS=/absolute/path/project-one:/absolute/path/project-two
+CODEX_BIN=codex
 ```
 
-如果使用上面的 GUI 向导保存了配置，推荐直接执行 `npm run macos:start`，Mac LaunchAgent 会自动带上 `.env` 启动服务。
+`CODEX_BIN` 找不到时，填写 Codex 可执行文件的完整路径。修改配置后需要重启服务。
 
-### Windows 启动
+## macOS
 
-Windows 可以使用仓库中的 `start-windows.bat` 双击启动，或在 PowerShell 中运行：
+临时开发运行：
+
+```bash
+npm run dev
+```
+
+注册为登录后自动启动的 LaunchAgent：
+
+```bash
+npm run macos:start
+npm run macos:status
+npm run macos:stop
+npm run macos:uninstall
+```
+
+向导中的“自动配置 Mac 后台服务”也可以生成 LaunchAgent 配置。启动后台服务前，先停止当前终端里的 `npm run dev` 或 `npm start`。
+
+## Windows
+
+PowerShell 启动：
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 .\start-windows.ps1
 ```
 
-脚本会自动读取项目根目录的 `.env`、检查 Node.js 22 和 Codex、首次运行时安装 npm 依赖，然后启动带热重载的开发服务。先复制配置模板并按 Windows 路径修改：
+也可以双击 `start-windows.bat`。脚本会读取 `.env`、检查 Node.js/Codex，并在首次运行时安装依赖。
 
-```powershell
-Copy-Item .env.example .env
-```
-
-`.env` 示例：
-
-```dotenv
-HOST=127.0.0.1
-PORT=8787
-PUBLIC_URL=https://your-domain.example
-CODEX_POCKET_ROOTS=C:\Users\your-name\Documents\project-one;C:\Users\your-name\Documents\project-two
-CODEX_BIN=codex
-```
-
-Windows 也可以在本机打开 `/setup`，向导会自动识别系统；切换到 Windows 后会显示 Windows 后台任务配置按钮。按钮会创建“Codex Pocket”登录启动任务，完成后关闭当前 PowerShell 窗口，再运行：
+在 `/setup` 中选择或自动识别 Windows，点击“自动配置 Windows 后台任务”，然后关闭当前 PowerShell 窗口：
 
 ```powershell
 .\scripts\windows-service.ps1 start
 ```
 
-停止、查看或删除任务：
+管理任务：
 
 ```powershell
-.\scripts\windows-service.ps1 stop
 .\scripts\windows-service.ps1 status
+.\scripts\windows-service.ps1 stop
 .\scripts\windows-service.ps1 uninstall
 ```
 
-如果 `codex` 不在 PATH 中，将 `CODEX_BIN` 改成 `codex.exe` 的完整路径。Cloudflare Tunnel 或其他 HTTPS 网关需要另外按对应 Windows 文档运行；Pocket 本身仍只监听 `127.0.0.1`。
+## 手机远程访问
 
-## 手机远程访问：Cloudflare Tunnel（当前方案）
+推荐使用 Cloudflare Tunnel，校园网不需要开放入站端口。
 
-校园网环境优先使用 Cloudflare Tunnel。Mac 通过出站 HTTPS 连接 Cloudflare，手机不需要安装 VPN，也不需要校园网提供公网入口。
-
-前提是你的域名已经托管在 Cloudflare，并且域名状态显示为 `Active`。本机已经安装并配置了 `cloudflared`，配置文件默认位于 `~/.cloudflared/config.yml`，内容只把你的子域名转发到 `127.0.0.1:8787`。
-
-首次配置或更换账号时：
+前提：域名已托管到 Cloudflare，且 `cloudflared` 已安装。首次配置：
 
 ```bash
 cloudflared tunnel login
 cloudflared tunnel create codex-pocket
-cloudflared tunnel route dns codex-pocket codex.dogbot.cc.cd
+cloudflared tunnel route dns codex-pocket your-subdomain.example
 cloudflared tunnel ingress validate
 ```
 
-启动 Codex Pocket 时必须使用公网 HTTPS 地址：
+Tunnel 的转发目标应为：
 
-```bash
-export PUBLIC_URL="https://codex.dogbot.cc.cd"
-export CODEX_POCKET_ROOTS="/absolute/path/to/project-one:/absolute/path/to/project-two"
-npm start
+```text
+http://127.0.0.1:8787
 ```
 
-Tunnel 作为当前用户的 LaunchAgent 运行：
+启动服务时，`PUBLIC_URL` 必须是手机能访问的 HTTPS 地址。电脑端打开 `/setup`，生成二维码后用手机扫描并完成一次性配对。配对成功后，手机获得长期设备授权；电脑服务和 Tunnel 在线时不需要重复配对。
 
-```bash
-launchctl print gui/$(id -u)/com.codex-pocket.cloudflared
-tail -f ~/.cloudflared/codex-pocket.log
-```
+建议在 Cloudflare Zero Trust 中为子域名增加 Access，只允许自己的邮箱登录。
 
-验证手机入口：
+Tailscale 可作为备选，但手机和电脑需要登录同一个 tailnet，并使用 Tailscale Serve。
 
-```bash
-curl https://codex.dogbot.cc.cd/api/health
-```
+## Android App
 
-建议在 Cloudflare Zero Trust 中为 `codex.dogbot.cc.cd` 增加 Access 应用，只允许你的邮箱通过一次性验证码登录。Access 配置完成后，手机打开 `https://codex.dogbot.cc.cd`，再输入 Mac 页面显示的一次性配对码。
+`android-app/` 是隔离的 Capacitor Android 工程，仍连接电脑上的 Codex Pocket，不在手机上运行 Codex。它支持扫码配对、可配置服务器地址、返回键和本地通知。
 
-## Android 安装包（个人使用）
-
-项目包含一个基于现有 PWA 的 Trusted Web Activity（TWA）Android 工程。它不会在手机上运行 Codex，打开 App 后仍由电脑上的 Codex Pocket 服务工作；电脑和 Cloudflare Tunnel 在线时即可使用。
-
-首次构建需要 Java 17、Android SDK 和 Bubblewrap。Bubblewrap 初始化时同意 Android SDK 条款后，在项目根目录执行：
-
-```bash
-JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew assembleRelease
-npx --yes @bubblewrap/cli build
-```
-
-签名后的个人安装包会生成在 `app-release-signed.apk`。签名密钥保存在用户目录的 `~/.bubblewrap/codexpocket.keystore`，不要提交到 GitHub；更换签名密钥后需要同步更新 `public/.well-known/assetlinks.json` 中的 SHA-256 指纹。
-
-另外，`android-app/` 是隔离的 Capacitor Android 工程，用于逐步演进为原生 App。首次打开 App 不需要预先配置域名，会先显示本地扫码引导页；扫描电脑端二维码后自动保存 HTTPS 服务器地址并进入工作区。当前版本还接入了 Android 返回键、系统栏、本地通知和可配置服务器地址；后续可以在该目录加入文件选择等原生交互，而不会影响根目录网页版本。
-
-## 连接管理
-
-在 Mac 本地页面顶部点击“连接管理”，可以查看每个已授权设备的设备类型、在线状态、创建时间和最近活动时间。电脑端可以单独撤销某个设备，也可以“撤销其他全部”；当前管理页面所在的 Mac 会话默认不会被误撤销。
-
-连接管理接口只接受来自回环地址的请求，手机和公网入口不能调用它。撤销授权会使设备令牌失效、关闭对应的实时 WebSocket，手机会立即回到配对页面。授权记录保存在 `.codex-pocket/devices.json`，服务重启后仍然有效；文件只保存令牌哈希，并且权限限制为当前用户可读写。
-
-历史任务会从本机 Codex app-server 的 `thread/list` 同步，只保留 `CODEX_POCKET_ROOTS` 允许目录及其子目录中的线程。打开手机工作区或刷新页面时会重新同步；点击历史任务后可以读取完整对话，并继续发送消息。任务状态会通过 app-server 事件实时更新。
-
-在电脑端工作区顶部点击“项目管理”，候选项目来自 Codex app-server 的历史线程，会按项目工作目录聚合并显示历史对话数量。勾选或取消项目后保存，配置会写入本机 `.env`，项目和历史任务会立即刷新；项目管理接口只接受回环地址，且只接受真实存在的 Codex 项目工作目录，至少保留一个项目。手机端不能修改允许项目。
-
-## 模型设置
-
-工作区中的“模型设置”会读取当前 Mac 上 Codex app-server 返回的可用模型。可以选择模型、推理强度和服务速度档位；设置只对新建任务生效，继续已有任务会沿用该任务创建时的设置。服务端会再次校验模型和选项，手机不能提交本机未提供的模型。
-
-## 手机远程访问：Tailscale（备选）
-
-不要把 `8787` 端口或 `codex app-server` 直接暴露到公网，也不要使用 Tailscale Funnel。推荐用 Tailscale Serve 提供仅 tailnet 内可访问的 HTTPS 入口。
-
-1. 在 Mac 和手机上安装 Tailscale，并登录同一个账号或 tailnet。
-2. 在 Mac 上启动 Tailscale：
-
-```bash
-brew install tailscale
-sudo brew services start tailscale
-sudo tailscale up
-```
-
-3. 查看 Mac 的 Tailscale DNS 名称：
-
-```bash
-tailscale status
-```
-
-4. 使用该名称设置公开地址并启动 Broker。下面的地址只是示例：
-
-```bash
-export PUBLIC_URL="https://your-mac.your-tailnet.ts.net"
-export CODEX_POCKET_ROOTS="/absolute/path/to/project-one:/absolute/path/to/project-two"
-npm start
-```
-
-5. 新开一个终端，把私有 HTTPS 转发到本机 Broker：
-
-```bash
-tailscale serve --bg --https=443 http://127.0.0.1:8787
-tailscale serve status
-```
-
-6. 回到 Mac 上的 `http://127.0.0.1:8787`，用手机扫描新的二维码。二维码必须包含上面配置的 `https://...ts.net` 地址。
-
-手机丢失或不再使用时，在 Mac 的“连接管理”中撤销对应设备授权；如果使用 Tailscale，也可以同时在 Tailscale 管理后台撤销该设备。
-
-## 配置项
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `HOST` | `127.0.0.1` | Broker 监听地址；程序会拒绝非回环地址 |
-| `PORT` | `8787` | Broker 本机端口 |
-| `PUBLIC_URL` | 本机地址 | 手机扫描二维码后访问的 HTTPS 地址 |
-| `CODEX_POCKET_ROOTS` | 当前目录 | 手机可选择的绝对项目目录列表 |
-| `CODEX_BIN` | `codex` | Codex 可执行文件路径 |
-
-修改配置后需要重启服务。已授权设备可以在重启后继续使用；任务记录仍保存在 `.codex-pocket/threads.json`。
+项目也保留了 TWA/Bubblewrap 构建文件；构建 Android 包需要 Java 17、Android SDK 和 Bubblewrap。
 
 ## 安全边界
 
-- Broker 强制监听回环地址，手机不能直接连接 app-server。
-- 浏览器不能发送原始 JSON-RPC，也不能改变 sandbox、审批策略或工作目录。
-- 每个任务固定使用 `workspaceWrite`，可写目录仅为所选项目，默认禁用网络。
-- 设备令牌使用随机高熵值，只在 `.codex-pocket/devices.json` 中保存 SHA-256 哈希；浏览器使用 `HttpOnly`、`SameSite=Strict` cookie，HTTPS 下自动启用 `Secure`。
-- 配对邀请五分钟过期且成功后立即失效；配对接口有限流，设备授权可以在 Mac 本地页面撤销。
-- 只有回环地址上的 Mac 浏览器可以调用本机自动授权接口；公网手机仍必须通过一次性配对流程。
-- WebSocket 与修改类 HTTP 请求都会校验会话和 `Origin`。
-- 第一版不提供永久批准，只允许单次批准、拒绝或停止任务。
-
-官方协议参考：[Codex App Server](https://learn.chatgpt.com/docs/app-server)。官方现成方案参考：[Codex Remote](https://learn.chatgpt.com/docs/remote)。
+- 服务始终只监听 `127.0.0.1`，不直接暴露 Codex app-server
+- 手机只能访问电脑端勾选的项目目录
+- 配对码五分钟过期，设备可在电脑端撤销
+- 设备文件只保存令牌哈希，修改请求校验会话和 `Origin`
+- 生产远程访问应使用 HTTPS，并为 Cloudflare Access 设置登录保护
 
 ## 检查与排错
-
-运行静态检查：
 
 ```bash
 npm run check
 npm audit
-```
-
-健康检查：
-
-```bash
 curl http://127.0.0.1:8787/api/health
 ```
 
-常见问题：
+- Codex 未连接：确认 `codex --version` 可用，或检查 `CODEX_BIN`
+- 手机打不开：确认 HTTPS 地址、Tunnel 状态和 Cloudflare Access
+- 二维码是 `127.0.0.1`：检查 `PUBLIC_URL`
+- 项目未出现：确认 `CODEX_POCKET_ROOTS` 是存在的绝对路径
+- 重启后无需重新配对：授权保存在 `.codex-pocket/devices.json`
 
-- 页面显示 Codex 未连接：确认 `codex --version` 可运行，或设置正确的 `CODEX_BIN`。
-- 手机打不开页面：确认手机已连接同一 tailnet，并检查 `tailscale serve status`。
-- 二维码仍是 `127.0.0.1`：启动前没有设置正确的 `PUBLIC_URL`。
-- 项目没有出现：确认路径是绝对目录、确实存在，并在启动前设置 `CODEX_POCKET_ROOTS`。
-- 重启后仍可访问：设备授权持久化在 `.codex-pocket/devices.json`；如果删除该文件，所有长期授权都会失效并需要重新配对。
+修改代码后，开发模式会自动重载；LaunchAgent/Windows 后台任务需要重启对应服务。
+
+## 许可证与参考
+
+本项目用于个人使用。协议参考：[Codex App Server](https://learn.chatgpt.com/docs/app-server)。
