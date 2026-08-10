@@ -15,6 +15,7 @@ const state = {
   socket: null,
   reconnectTimer: null,
   sendPending: false,
+  notificationPermission: typeof Notification === "undefined" ? "unsupported" : Notification.permission,
 };
 
 const el = {
@@ -35,6 +36,7 @@ const el = {
   pairButton: document.querySelector("#pairButton"),
   projectButton: document.querySelector("#projectButton"),
   sessionButton: document.querySelector("#sessionButton"),
+  notificationButton: document.querySelector("#notificationButton"),
   projectDialog: document.querySelector("#projectDialog"),
   projectForm: document.querySelector("#projectForm"),
   projectPathInput: document.querySelector("#projectPathInput"),
@@ -61,8 +63,11 @@ const el = {
   detailView: document.querySelector("#detailView"),
   backButton: document.querySelector("#backButton"),
   interruptButton: document.querySelector("#interruptButton"),
+  retryButton: document.querySelector("#retryButton"),
+  releaseButton: document.querySelector("#releaseButton"),
   detailTitle: document.querySelector("#detailTitle"),
   detailMeta: document.querySelector("#detailMeta"),
+  detailWriter: document.querySelector("#detailWriter"),
   detailStatus: document.querySelector("#detailStatus"),
   timeline: document.querySelector("#timeline"),
   composer: document.querySelector("#composer"),
@@ -82,6 +87,7 @@ const el = {
 };
 
 void boot();
+void registerServiceWorker();
 
 el.pairButton.hidden = !isLocalBrowser();
 el.projectButton.hidden = !isLocalBrowser();
@@ -190,6 +196,10 @@ el.deviceButton.addEventListener("click", () => {
   }
   void showSessionDialog();
 });
+
+el.notificationButton.addEventListener("click", () => void enableNotifications());
+el.retryButton.addEventListener("click", () => void retryThread());
+el.releaseButton.addEventListener("click", () => void releaseThread());
 
 el.approvalAllow.addEventListener("click", () => resolveApproval("allow"));
 el.approvalDeny.addEventListener("click", () => resolveApproval("deny"));
@@ -533,6 +543,7 @@ function renderWorkspace() {
   renderDetail();
   renderComposer();
   renderApproval();
+  renderNotificationButton();
 }
 
 function initializeModelSettings() {
@@ -687,7 +698,9 @@ function createTaskRow(thread) {
   title.textContent = thread.title;
   const meta = document.createElement("span");
   meta.className = "task-row-meta";
-  meta.textContent = relativeTime(thread.updatedAt);
+  meta.textContent = thread.writer
+    ? `${relativeTime(thread.updatedAt)} · 占用：${thread.writer.device}`
+    : relativeTime(thread.updatedAt);
   copy.append(title, meta);
   const status = document.createElement("span");
   status.className = `status-label ${thread.status}`;
@@ -705,6 +718,11 @@ function renderDetail() {
   el.detailStatus.className = `status-label ${thread.status}`;
   el.detailStatus.textContent = statusLabel(thread.status);
   el.interruptButton.hidden = !["running", "starting", "approval", "stopping"].includes(thread.status);
+  el.retryButton.hidden = !["failed", "interrupted"].includes(thread.status);
+  el.releaseButton.hidden = !thread.writer;
+  el.releaseButton.textContent = isActiveTask(thread.status) ? "停止并释放" : "释放占用";
+  el.detailWriter.hidden = !thread.writer;
+  el.detailWriter.textContent = thread.writer ? `当前占用设备：${thread.writer.device} · ${relativeTime(thread.writer.startedAt)}开始` : "";
   renderTimeline(thread.id);
 }
 
@@ -809,6 +827,38 @@ async function sendPrompt(prompt) {
   }
 }
 
+async function retryThread() {
+  const thread = selectedThread();
+  if (!thread || !["failed", "interrupted"].includes(thread.status)) return;
+  try {
+    el.retryButton.disabled = true;
+    const result = await request(`/api/threads/${encodeURIComponent(thread.id)}/retry`, { method: "POST" });
+    appendTimeline(thread.id, { type: "message", role: "user", text: `重试：${result.prompt}`, at: Date.now() });
+    upsertThread(result.thread);
+    renderWorkspace();
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    el.retryButton.disabled = false;
+  }
+}
+
+async function releaseThread() {
+  const thread = selectedThread();
+  if (!thread?.writer) return;
+  try {
+    el.releaseButton.disabled = true;
+    const result = await request(`/api/threads/${encodeURIComponent(thread.id)}/release`, { method: "POST" });
+    if (result.thread) upsertThread(result.thread);
+    renderWorkspace();
+    showToast(result.status === "stopping" ? "已请求停止并释放任务" : "已释放本地占用");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    el.releaseButton.disabled = false;
+  }
+}
+
 function selectedSettings() {
   return {
     ...(state.model ? { model: state.model } : {}),
@@ -883,12 +933,15 @@ function handleSocketEvent(event) {
     return;
   }
   if (event.type === "thread_updated") {
+    const previous = state.threads.find((thread) => thread.id === event.thread?.id);
+    notifyTaskUpdate(event.thread, previous);
     upsertThread(event.thread);
     renderWorkspace();
     return;
   }
   if (event.type === "approval_requested") {
     state.approvals = [event.approval, ...state.approvals.filter((entry) => entry.id !== event.approval.id)];
+    notifyTaskUpdate(state.threads.find((thread) => thread.id === event.approval.threadId), null, "approval");
     renderWorkspace();
     return;
   }
@@ -1004,6 +1057,65 @@ function relativeTime(value) {
   if (elapsed < 3_600_000) return `${Math.round(elapsed / 60_000)} 分钟前`;
   if (elapsed < 86_400_000) return `${Math.round(elapsed / 3_600_000)} 小时前`;
   return `${Math.round(elapsed / 86_400_000)} 天前`;
+}
+
+function renderNotificationButton() {
+  if (state.notificationPermission === "unsupported") {
+    el.notificationButton.hidden = true;
+    return;
+  }
+  el.notificationButton.hidden = false;
+  el.notificationButton.textContent = state.notificationPermission === "granted" ? "通知已开" : "开启通知";
+  el.notificationButton.disabled = state.notificationPermission === "denied";
+  el.notificationButton.title = state.notificationPermission === "denied" ? "请在浏览器设置中允许通知" : "任务完成或需要批准时通知";
+}
+
+async function enableNotifications() {
+  if (state.notificationPermission === "unsupported") return;
+  try {
+    state.notificationPermission = await Notification.requestPermission();
+    renderNotificationButton();
+    showToast(state.notificationPermission === "granted" ? "任务通知已开启" : "未开启任务通知");
+  } catch {
+    showToast("当前浏览器不支持任务通知");
+  }
+}
+
+function notifyTaskUpdate(thread, previous, forcedStatus = "") {
+  if (!thread || state.notificationPermission !== "granted" || document.visibilityState === "visible") return;
+  const status = forcedStatus || thread.status;
+  if (!forcedStatus && (!previous || previous.status === status)) return;
+  const message = status === "approval"
+    ? "Codex 正在等待你的批准"
+    : status === "completed"
+      ? "任务已完成"
+      : status === "failed"
+        ? "任务执行失败，可点击重试"
+        : "任务状态已更新";
+  if (!["approval", "completed", "failed"].includes(status)) return;
+  let notification;
+  try {
+    notification = new Notification(thread.title || "Codex Pocket", {
+      body: message,
+      tag: `codex-pocket-${thread.id}-${status}`,
+    });
+  } catch {
+    return;
+  }
+  notification.onclick = () => {
+    window.focus();
+    void selectThread(thread.id);
+    notification.close();
+  };
+}
+
+async function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    await navigator.serviceWorker.register("/sw.js");
+  } catch {
+    // PWA install is optional; the task console still works without it.
+  }
 }
 
 async function request(url, options = {}) {

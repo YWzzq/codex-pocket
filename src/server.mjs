@@ -53,6 +53,7 @@ const sessions = new Map();
 const approvals = new Map();
 const activeTurns = new Map();
 const pendingTurnStarts = new Set();
+const threadWriters = new Map();
 const loadedThreads = new Set();
 let bridge;
 let modelCache = { loadedAt: 0, models: [] };
@@ -258,7 +259,7 @@ app.post("/api/threads", requireSession, asyncHandler(async (req, res) => {
   };
   loadedThreads.add(thread.id);
   await registry.upsert(thread);
-  const turn = await startTurn(thread, prompt);
+  const turn = await startTurn(thread, prompt, req.session);
   res.status(201).json({ thread: publicThread(registry.get(thread.id)), turnId: turn.id });
 }));
 
@@ -276,8 +277,50 @@ app.post("/api/threads/:threadId/messages", requireSession, asyncHandler(async (
     });
     loadedThreads.add(thread.id);
   }
-  const turn = await startTurn(thread, prompt);
+  const turn = await startTurn(thread, prompt, req.session);
   res.status(201).json({ thread: publicThread(registry.get(thread.id)), turnId: turn.id });
+}));
+
+app.post("/api/threads/:threadId/retry", requireSession, asyncHandler(async (req, res) => {
+  const thread = requireOwnedThread(req.params.threadId);
+  if (!["failed", "interrupted"].includes(thread.status)) {
+    throw threadRetryError("只有失败或已停止的任务可以重试。");
+  }
+  await bridge.start();
+  const result = await bridge.request("thread/read", { threadId: thread.id, includeTurns: true });
+  const history = extractThreadHistory(result?.thread);
+  const prompt = [...history.timeline].reverse().find((entry) => entry.type === "message" && entry.role === "user")?.text;
+  if (!prompt) throw threadRetryError("找不到上一次任务指令，无法自动重试。");
+  if (!loadedThreads.has(thread.id)) {
+    await bridge.request("thread/resume", {
+      threadId: thread.id,
+      cwd: thread.cwd,
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
+      ...threadStartSettings(thread),
+    });
+    loadedThreads.add(thread.id);
+  }
+  const turn = await startTurn(thread, prompt, req.session);
+  res.status(201).json({ thread: publicThread(registry.get(thread.id)), turnId: turn.id, prompt });
+}));
+
+app.post("/api/threads/:threadId/release", requireSession, asyncHandler(async (req, res) => {
+  const thread = requireOwnedThread(req.params.threadId);
+  const turnId = activeTurns.get(thread.id) ?? thread.activeTurnId;
+  if (turnId) {
+    await bridge.start();
+    await bridge.request("turn/interrupt", { threadId: thread.id, turnId });
+    const updated = await updateThread(thread.id, { status: "stopping", activeTurnId: turnId });
+    res.json({ ok: true, status: "stopping", thread: publicThread(updated) });
+    return;
+  }
+  if (["starting", "running", "approval", "stopping"].includes(thread.status)) {
+    throw threadRetryError("Codex 仍在执行这个任务，无法安全释放；请在原设备停止任务。");
+  }
+  threadWriters.delete(thread.id);
+  const updated = await updateThread(thread.id, { activeTurnId: null });
+  res.json({ ok: true, status: thread.status, thread: publicThread(updated) });
 }));
 
 app.post("/api/threads/:threadId/interrupt", requireSession, asyncHandler(async (req, res) => {
@@ -408,7 +451,7 @@ async function shutdown() {
   process.exit(0);
 }
 
-async function startTurn(thread, prompt) {
+async function startTurn(thread, prompt, session) {
   if (pendingTurnStarts.has(thread.id) || activeTurns.has(thread.id) || thread.activeTurnId || ["running", "approval", "stopping"].includes(thread.status)) {
     throw threadBusyError();
   }
@@ -428,6 +471,11 @@ async function startTurn(thread, prompt) {
       throw new Error("Codex did not return a turn id.");
     }
     activeTurns.set(thread.id, turnId);
+    threadWriters.set(thread.id, {
+      device: session?.device ?? "本机设备",
+      startedAt: Date.now(),
+      sessionId: session?.id ?? null,
+    });
     await updateThread(thread.id, {
       status: "running",
       activeTurnId: turnId,
@@ -549,6 +597,10 @@ async function syncCodexThreads() {
       effort: existing?.effort ?? null,
       serviceTier: existing?.serviceTier ?? null,
     });
+    if (["running", "approval"].includes(status) && !threadWriters.has(summary.id)) {
+      threadWriters.set(summary.id, { device: "Codex/其他设备", startedAt: Date.now(), sessionId: null });
+    }
+    if (["completed", "interrupted", "failed"].includes(status)) threadWriters.delete(summary.id);
   }
   await registry.upsertMany(records);
 }
@@ -593,15 +645,26 @@ async function handleCodexNotification(message) {
 
   if (event.type === "turn_started") {
     activeTurns.set(event.threadId, event.turnId);
+    if (!threadWriters.has(event.threadId)) {
+      threadWriters.set(event.threadId, { device: "Codex/其他设备", startedAt: Date.now(), sessionId: null });
+    }
     await updateThread(event.threadId, { status: "running", activeTurnId: event.turnId });
   }
   if (event.type === "turn_completed") {
     activeTurns.delete(event.threadId);
+    threadWriters.delete(event.threadId);
     const status = event.status === "completed" ? "completed" : event.status === "interrupted" ? "interrupted" : "failed";
     await updateThread(event.threadId, { status, activeTurnId: null });
   }
   if (event.type === "thread_status") {
-    await updateThread(event.threadId, { status: mapCodexStatus(event.status) });
+    const status = mapCodexStatus(event.status);
+    if (["completed", "interrupted", "failed"].includes(status)) {
+      activeTurns.delete(event.threadId);
+      threadWriters.delete(event.threadId);
+    } else if (["running", "approval"].includes(status) && !threadWriters.has(event.threadId)) {
+      threadWriters.set(event.threadId, { device: "Codex/其他设备", startedAt: Date.now(), sessionId: null });
+    }
+    await updateThread(event.threadId, { status, ...(status === "completed" || status === "interrupted" || status === "failed" ? { activeTurnId: null } : {}) });
   }
   broadcast(event);
 }
@@ -757,6 +820,7 @@ function publicProject(project) {
 }
 
 function publicThread(thread) {
+  const writer = threadWriters.get(thread.id);
   return {
     id: thread.id,
     projectId: thread.projectId,
@@ -769,6 +833,7 @@ function publicThread(thread) {
     model: thread.model ?? null,
     effort: thread.effort ?? null,
     serviceTier: thread.serviceTier ?? null,
+    writer: writer ? { device: writer.device, startedAt: writer.startedAt } : null,
   };
 }
 
@@ -1055,6 +1120,12 @@ function threadBusyError(stale = false) {
   const error = new Error(stale
     ? "这个任务仍被 Codex 占用，请在原设备停止任务，或重启电脑端服务后再发送。"
     : "这个任务正在由另一台设备执行，请等待完成后再发送。" );
+  error.statusCode = 409;
+  return error;
+}
+
+function threadRetryError(message) {
+  const error = new Error(message);
   error.statusCode = 409;
   return error;
 }

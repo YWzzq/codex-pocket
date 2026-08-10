@@ -506,6 +506,12 @@ select {
   min-height: 52px;
 }
 
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .text-button {
   min-height: 38px;
   padding: 0;
@@ -542,6 +548,12 @@ select {
 .detail-title-row p {
   margin: 6px 0 0;
   font-size: 13px;
+}
+
+.writer-label {
+  margin: -8px 0 12px;
+  color: var(--amber);
+  font-size: 12px;
 }
 
 .timeline {
@@ -1026,6 +1038,15 @@ textarea {
 }
 
 @media (max-width: 560px) {
+  .topbar-actions {
+    gap: 5px;
+  }
+
+  .topbar-actions #notificationButton {
+    padding-right: 9px;
+    padding-left: 9px;
+  }
+
   .model-bar {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
