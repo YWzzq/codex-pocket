@@ -18,6 +18,7 @@ const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const PUBLIC_DIR = path.join(PROJECT_ROOT, "public");
 const RUNTIME_DIR = path.join(PROJECT_ROOT, ".codex-pocket");
 const ENV_FILE = path.join(PROJECT_ROOT, ".env");
+const MACOS_SERVICE_SCRIPT = path.join(PROJECT_ROOT, "scripts", "macos-service.mjs");
 const THREADS_FILE = path.join(RUNTIME_DIR, "threads.json");
 const DEVICES_FILE = path.join(RUNTIME_DIR, "devices.json");
 const PORT = parsePort(process.env.PORT ?? "8787");
@@ -117,6 +118,28 @@ app.get("/api/setup/config", requireLocalAdmin, asyncHandler(async (req, res) =>
     codexBin: CODEX_BIN,
     host: HOST,
     port: PORT,
+  });
+}));
+
+app.post("/api/setup/macos-service", requireLocalAdmin, asyncHandler(async (req, res) => {
+  if (process.platform !== "darwin") {
+    res.status(400).json({ error: "Mac 后台服务只支持在 macOS 上配置。" });
+    return;
+  }
+  try {
+    await execFileAsync(process.execPath, [MACOS_SERVICE_SCRIPT, "install"], {
+      cwd: PROJECT_ROOT,
+      timeout: 10_000,
+      windowsHide: true,
+    });
+  } catch (error) {
+    throw new Error(error.stderr?.trim() || error.message || "无法生成 Mac 后台服务配置。");
+  }
+  res.json({
+    ok: true,
+    installed: true,
+    restartRequired: true,
+    nextStep: "停止当前终端中的 npm 服务后，再运行 npm run macos:start。",
   });
 }));
 

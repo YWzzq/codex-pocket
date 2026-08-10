@@ -69,6 +69,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .check-value.ok { color: var(--green); }
 .check-value.warn { color: var(--amber); }
 .check-value.error { color: var(--red); }
+.service-action { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 14px; padding: 13px; border: 1px solid rgba(239,196,110,.35); border-radius: 10px; background: rgba(239,196,110,.07); }
+.service-action .card-copy { margin: 5px 0 0; }
 .project-candidates { display: grid; max-height: 250px; overflow: auto; margin: 0 0 14px; border-top: 1px solid var(--line); }
 .project-row { display: flex; align-items: flex-start; gap: 10px; padding: 11px 0; border-bottom: 1px solid rgba(52,69,56,.65); }
 .project-row input { margin-top: 3px; accent-color: var(--green); }
@@ -100,5 +102,6 @@ code, .code-line, .pair-code { font-family: ui-monospace, SFMono-Regular, Menlo,
   .pair-card { grid-column: auto; }
   .pair-content { align-items: flex-start; flex-direction: column; }
   .pair-qr { width: min(240px, 70vw); height: auto; }
+  .service-action { align-items: flex-start; flex-direction: column; }
   .setup-footer { align-items: flex-start; flex-direction: column; }
 }

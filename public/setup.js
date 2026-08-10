@@ -6,6 +6,9 @@ const el = {
   setupError: document.querySelector("#setupError"),
   environmentStatus: document.querySelector("#environmentStatus"),
   environmentChecks: document.querySelector("#environmentChecks"),
+  macServiceAction: document.querySelector("#macServiceAction"),
+  macServiceGuide: document.querySelector("#macServiceGuide"),
+  macServiceButton: document.querySelector("#macServiceButton"),
   projectsStatus: document.querySelector("#projectsStatus"),
   configStatus: document.querySelector("#configStatus"),
   configForm: document.querySelector("#configForm"),
@@ -30,6 +33,7 @@ el.refreshButton.addEventListener("click", () => void refreshAll());
 el.discoverButton.addEventListener("click", () => void discoverProjects());
 el.saveProjectsButton.addEventListener("click", () => void saveProjects());
 el.pairButton.addEventListener("click", () => void loadPairing());
+el.macServiceButton.addEventListener("click", () => void configureMacService());
 el.environmentNext.addEventListener("click", () => goToStep(2));
 el.tunnelNext.addEventListener("click", () => goToStep(5));
 el.configForm.addEventListener("submit", (event) => {
@@ -116,10 +120,31 @@ function renderStatus(status) {
     row.append(name, detail);
     el.environmentChecks.append(row);
   }
+  const serviceReady = Boolean(status.serverAgent);
+  el.macServiceAction.hidden = serviceReady;
+  if (!serviceReady) {
+    el.macServiceButton.disabled = false;
+    el.macServiceButton.textContent = "自动配置后台服务";
+  }
   setStep(el.environmentStatus, checks.every(([, ok]) => ok) ? "已完成" : "需要处理", checks.every(([, ok]) => ok) ? "ok" : "action");
   el.publicUrl.textContent = `公网地址：${status.publicUrl}`;
   const tunnelReady = status.cloudflared && status.tunnelConfig && status.tunnelCredentials && status.tunnelAgent;
   setStep(el.tunnelStatus, tunnelReady ? "已就绪" : "需要操作", tunnelReady ? "ok" : "action");
+}
+
+async function configureMacService() {
+  el.macServiceButton.disabled = true;
+  el.macServiceButton.textContent = "正在生成配置…";
+  setError("");
+  try {
+    const result = await request("/api/setup/macos-service", { method: "POST", body: JSON.stringify({}) });
+    el.macServiceGuide.textContent = `${result.nextStep} 当前终端服务不要与后台服务同时运行。`;
+    el.macServiceButton.textContent = "配置已生成";
+  } catch (error) {
+    setError(error.message);
+    el.macServiceButton.disabled = false;
+    el.macServiceButton.textContent = "自动配置后台服务";
+  }
 }
 
 async function discoverProjects(silent = false) {
