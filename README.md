@@ -5,8 +5,8 @@ Codex Pocket 是一个手机优先的本地 Codex 控制台。手机只负责创
 它不是桌面 Codex 界面的远程镜像。架构如下：
 
 ```text
-手机浏览器
-  -> Tailscale 私有 HTTPS
+手机 App 或浏览器
+  -> Cloudflare Tunnel HTTPS
   -> 电脑上的 Broker（127.0.0.1:8787）
   -> codex app-server（stdio）
   -> 电脑上的 Codex 与项目文件
@@ -29,7 +29,7 @@ Codex Pocket 是一个手机优先的本地 Codex 控制台。手机只负责创
 
 - macOS 或 Windows 上已经安装并登录 Codex
 - Node.js 22 或更高版本
-- 手机和 Mac 登录同一个 Tailscale 网络（远程访问时需要）
+- Mac 保持联网，并运行 Codex Pocket 与 Cloudflare Tunnel（远程访问时需要）
 
 确认环境：
 
@@ -57,6 +57,27 @@ npm install
 export CODEX_POCKET_ROOTS="/absolute/path/to/project-one:/absolute/path/to/project-two"
 npm start
 ```
+
+### Mac 后台服务
+
+Mac 端可以把 Codex Pocket 注册为当前用户的 LaunchAgent。它会在登录后自动启动，并在进程异常退出时自动拉起；Cloudflare Tunnel 仍由独立的 `cloudflared` LaunchAgent 负责。
+
+先停止当前终端里运行的 `npm run dev` 或 `npm start`，再执行：
+
+```bash
+npm run macos:start
+```
+
+常用管理命令：
+
+```bash
+npm run macos:status     # 查看后台服务状态
+npm run macos:stop       # 停止服务但保留配置
+npm run macos:install    # 只生成 LaunchAgent 配置
+npm run macos:uninstall  # 停止并删除 LaunchAgent 配置
+```
+
+后台服务直接使用当前 Node 运行 `src/server.mjs`，并自动读取项目根目录的 `.env`；它不是另一套后端，手机 App 仍然连接同一个 `127.0.0.1:8787` 和 Cloudflare Tunnel。
 
 在电脑浏览器打开 [http://127.0.0.1:8787](http://127.0.0.1:8787)。本机浏览器会自动建立本机授权，不需要输入配对码；页面中的“手机配对”按钮用于生成手机的一次性二维码和配对码。首次手机配对成功后，手机会获得一个长期设备授权；之后只要电脑服务和公网入口在线，就不需要重复输入配对码。
 

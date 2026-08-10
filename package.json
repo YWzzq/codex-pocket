@@ -7,7 +7,12 @@
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs",
-    "check": "node --check src/server.mjs && node --check public/app.js"
+    "check": "node --check src/server.mjs && node --check public/app.js && node --check scripts/macos-service.mjs",
+    "macos:install": "node scripts/macos-service.mjs install",
+    "macos:start": "node scripts/macos-service.mjs start",
+    "macos:stop": "node scripts/macos-service.mjs stop",
+    "macos:status": "node scripts/macos-service.mjs status",
+    "macos:uninstall": "node scripts/macos-service.mjs uninstall"
   },
   "engines": {
     "node": ">=22"
