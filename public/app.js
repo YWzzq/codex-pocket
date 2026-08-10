@@ -1,3 +1,12 @@
+function nativeNotificationPlugin() {
+  return globalThis.Capacitor?.Plugins?.LocalNotifications ?? null;
+}
+
+function initialNotificationPermission() {
+  if (nativeNotificationPlugin()) return "prompt";
+  return typeof Notification === "undefined" ? "unsupported" : Notification.permission;
+}
+
 const state = {
   session: null,
   projects: [],
@@ -29,7 +38,7 @@ const state = {
   titleTimer: null,
   defaultDocumentTitle: document.title,
   forkPending: new Set(),
-  notificationPermission: typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+  notificationPermission: initialNotificationPermission(),
 };
 
 const el = {
@@ -1493,6 +1502,9 @@ function relativeTime(value) {
 }
 
 function renderNotificationButton() {
+  if (nativeNotificationPlugin() && state.notificationPermission === "unsupported") {
+    state.notificationPermission = "prompt";
+  }
   if (state.notificationPermission === "unsupported") {
     el.notificationButton.hidden = true;
     return;
@@ -1534,6 +1546,24 @@ async function installPwa() {
 async function enableNotifications() {
   if (state.notificationPermission === "unsupported") return;
   try {
+    const native = nativeNotificationPlugin();
+    if (native) {
+      const permission = await native.requestPermissions();
+      state.notificationPermission = permission.display ?? "prompt";
+      if (state.notificationPermission === "granted" && native.createChannel) {
+        await native.createChannel({
+          id: "codex-task-updates",
+          name: "Codex 任务更新",
+          description: "任务完成、失败或需要批准时提醒",
+          importance: 5,
+          visibility: 1,
+          vibration: true,
+        }).catch(() => undefined);
+      }
+      renderNotificationButton();
+      showToast(state.notificationPermission === "granted" ? "原生任务通知已开启" : "未开启任务通知");
+      return;
+    }
     state.notificationPermission = await Notification.requestPermission();
     renderNotificationButton();
     showToast(state.notificationPermission === "granted" ? "任务通知已开启" : "未开启任务通知");
@@ -1618,6 +1648,23 @@ async function playAlertTone() {
 
 async function showTaskNotification(thread, status, message) {
   const title = thread.title || "Codex Pocket";
+  const native = nativeNotificationPlugin();
+  if (native) {
+    try {
+      await native.schedule({
+        notifications: [{
+          id: Math.floor(Date.now() % 2_000_000_000),
+          title,
+          body: message,
+          channelId: "codex-task-updates",
+          extra: { threadId: thread.id, status },
+        }],
+      });
+      return;
+    } catch {
+      // Fall back to the web notification path when native notifications are unavailable.
+    }
+  }
   const options = {
     body: message,
     tag: `codex-pocket-${thread.id}-${status}`,

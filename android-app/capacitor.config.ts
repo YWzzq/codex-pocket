@@ -9,6 +9,11 @@ const config: CapacitorConfig = {
     cleartext: false,
     androidScheme: "https",
   },
+  plugins: {
+    LocalNotifications: {
+      smallIcon: "ic_stat_codex",
+    },
+  },
 };
 
 export default config;
