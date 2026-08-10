@@ -57,12 +57,19 @@
           </div>
         </header>
 
-        <section class="project-bar" aria-label="当前项目">
+        <section id="projectBar" class="project-bar" aria-label="当前项目">
           <label for="projectSelect">项目</label>
           <select id="projectSelect"></select>
         </section>
 
-        <section class="model-bar" aria-label="模型设置">
+        <section id="modelBar" class="model-bar" aria-label="模型设置">
+          <div class="mobile-settings-heading">
+            <div>
+              <p class="eyebrow">新任务</p>
+              <h2>模型设置</h2>
+            </div>
+            <span class="muted">只影响下一次新任务</span>
+          </div>
           <label>
             <span>模型</span>
             <select id="modelSelect" disabled>
@@ -82,6 +89,17 @@
             </select>
           </label>
           <p class="model-notice">设置仅对新任务生效，继续已有任务会保持原模型。</p>
+        </section>
+
+        <section id="mobileProjectPanel" class="mobile-panel" hidden aria-label="项目">
+          <div class="mobile-panel-heading">
+            <div>
+              <p class="eyebrow">项目</p>
+              <h2>选择项目</h2>
+            </div>
+            <span id="mobileProjectCount" class="muted"></span>
+          </div>
+          <div id="mobileProjectList" class="mobile-project-list"></div>
         </section>
 
         <section class="task-header">
@@ -155,9 +173,10 @@
           </div>
         </form>
 
-        <nav class="bottom-nav" aria-label="导航">
-          <button class="nav-item active" type="button">任务</button>
-          <button id="deviceButton" class="nav-item" type="button">设备</button>
+        <nav id="bottomNav" class="bottom-nav" aria-label="导航">
+          <button id="tasksNavButton" class="nav-item active" type="button">任务</button>
+          <button id="projectsNavButton" class="nav-item" type="button">项目</button>
+          <button id="settingsNavButton" class="nav-item" type="button">设置</button>
         </nav>
       </section>
     </main>

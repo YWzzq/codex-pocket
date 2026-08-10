@@ -384,6 +384,88 @@ textarea:focus {
   font-size: 12px;
 }
 
+.mobile-settings-heading {
+  display: none;
+}
+
+.mobile-panel {
+  padding: 22px 0 8px;
+}
+
+.mobile-panel-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 14px;
+}
+
+.mobile-panel-heading h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.mobile-panel-heading > .muted {
+  padding-bottom: 2px;
+  font-size: 12px;
+}
+
+.mobile-project-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-project-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  min-height: 68px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: inherit;
+  text-align: left;
+  background: var(--surface);
+}
+
+.mobile-project-row:hover,
+.mobile-project-row.selected {
+  border-color: var(--green);
+  background: rgba(185, 227, 111, 0.1);
+}
+
+.mobile-project-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.mobile-project-copy strong,
+.mobile-project-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-project-copy strong {
+  font-size: 14px;
+}
+
+.mobile-project-copy small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mobile-project-meta {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 select {
   height: 38px;
   padding: 0 10px;
@@ -952,6 +1034,16 @@ textarea {
   color: var(--green);
 }
 
+.nav-item.active::before {
+  display: block;
+  width: 24px;
+  height: 3px;
+  margin: 0 auto 5px;
+  border-radius: 999px;
+  background: var(--green);
+  content: "";
+}
+
 .approval-sheet {
   position: fixed;
   z-index: 10;
@@ -1426,9 +1518,48 @@ textarea {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
+  .mobile-settings-heading {
+    align-items: end;
+  }
+
   .model-bar label:first-child,
   .model-notice {
     grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .mobile-settings-heading {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 4px;
+  }
+
+  .mobile-settings-heading h2 {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.2;
+  }
+
+  .mobile-settings-heading > .muted {
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .bottom-nav {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .nav-item {
+    display: grid;
+    align-content: center;
+    min-height: 48px;
+    padding: 4px 0 0;
   }
 }
 

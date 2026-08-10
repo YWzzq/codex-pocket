@@ -9,6 +9,7 @@ const state = {
   serviceTier: "",
   threads: [],
   selectedId: null,
+  mobileTab: "tasks",
   timelines: new Map(),
   diffs: new Map(),
   queues: new Map(),
@@ -66,10 +67,20 @@ const el = {
   workspacePairQr: document.querySelector("#workspacePairQr"),
   workspacePairCode: document.querySelector("#workspacePairCode"),
   workspacePairNotice: document.querySelector("#workspacePairNotice"),
+  projectBar: document.querySelector("#projectBar"),
   projectSelect: document.querySelector("#projectSelect"),
+  modelBar: document.querySelector("#modelBar"),
   modelSelect: document.querySelector("#modelSelect"),
   reasoningSelect: document.querySelector("#reasoningSelect"),
   serviceTierSelect: document.querySelector("#serviceTierSelect"),
+  mobileProjectPanel: document.querySelector("#mobileProjectPanel"),
+  mobileProjectCount: document.querySelector("#mobileProjectCount"),
+  mobileProjectList: document.querySelector("#mobileProjectList"),
+  bottomNav: document.querySelector("#bottomNav"),
+  tasksNavButton: document.querySelector("#tasksNavButton"),
+  projectsNavButton: document.querySelector("#projectsNavButton"),
+  settingsNavButton: document.querySelector("#settingsNavButton"),
+  taskHeader: document.querySelector(".task-header"),
   taskHeading: document.querySelector("#taskHeading"),
   newTaskButton: document.querySelector("#newTaskButton"),
   taskFilters: document.querySelector("#taskFilters"),
@@ -102,7 +113,6 @@ const el = {
   promptInput: document.querySelector("#promptInput"),
   composerContext: document.querySelector("#composerContext"),
   sendButton: document.querySelector("#sendButton"),
-  deviceButton: document.querySelector("#deviceButton"),
   approvalSheet: document.querySelector("#approvalSheet"),
   approvalTitle: document.querySelector("#approvalTitle"),
   approvalReason: document.querySelector("#approvalReason"),
@@ -207,6 +217,7 @@ el.revokeAllButton.addEventListener("click", () => void revokeAllSessions());
 
 el.newTaskButton.addEventListener("click", () => {
   state.selectedId = null;
+  state.mobileTab = "tasks";
   renderWorkspace();
   scrollWorkspaceToTop();
   el.promptInput.focus();
@@ -250,14 +261,9 @@ el.composer.addEventListener("submit", async (event) => {
   await sendPrompt(prompt);
 });
 
-el.deviceButton.addEventListener("click", () => {
-  if (el.sessionButton.hidden) {
-    const detail = state.session?.appServer?.detail ?? "正在检查本机 Codex";
-    showToast(`${state.session?.host ?? "本地电脑"}: ${detail}`);
-    return;
-  }
-  void showSessionDialog();
-});
+el.tasksNavButton.addEventListener("click", () => switchMobileTab("tasks"));
+el.projectsNavButton.addEventListener("click", () => switchMobileTab("projects"));
+el.settingsNavButton.addEventListener("click", () => switchMobileTab("settings"));
 
 el.notificationButton.addEventListener("click", () => void enableNotifications());
 el.installButton.addEventListener("click", () => void installPwa());
@@ -316,6 +322,10 @@ async function boot() {
 
 function isLocalBrowser() {
   return ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
+}
+
+function isMobileViewport() {
+  return window.matchMedia("(max-width: 760px)").matches;
 }
 
 async function pair(payload, loadAfter = true) {
@@ -609,6 +619,7 @@ function resetToPairing() {
   state.serviceTier = "";
   state.threads = [];
   state.selectedId = null;
+  state.mobileTab = "tasks";
   state.timelines.clear();
   state.diffs.clear();
   state.queues.clear();
@@ -621,12 +632,37 @@ function renderWorkspace() {
   renderConnection();
   renderProjects();
   renderModelSettings();
+  renderMobileProjectPanel();
   renderTaskList();
   renderDetail();
   renderComposer();
   renderApproval();
   renderInstallButton();
   renderNotificationButton();
+  renderMobileNavigation();
+}
+
+function switchMobileTab(tab) {
+  if (!["tasks", "projects", "settings"].includes(tab)) return;
+  if (tab !== "tasks") state.selectedId = null;
+  state.mobileTab = tab;
+  renderWorkspace();
+  scrollWorkspaceToTop();
+}
+
+function renderMobileNavigation() {
+  const mobile = isMobileViewport();
+  const hasSelection = Boolean(selectedThread());
+  const nonTaskTab = mobile && state.mobileTab !== "tasks";
+  el.bottomNav.hidden = !mobile || hasSelection;
+  el.projectBar.hidden = mobile;
+  el.modelBar.hidden = mobile && state.mobileTab !== "settings";
+  el.mobileProjectPanel.hidden = !mobile || state.mobileTab !== "projects";
+  el.taskHeader.hidden = nonTaskTab;
+
+  for (const [tab, button] of [["tasks", el.tasksNavButton], ["projects", el.projectsNavButton], ["settings", el.settingsNavButton]]) {
+    button.classList.toggle("active", state.mobileTab === tab && !hasSelection);
+  }
 }
 
 function scrollWorkspaceToTop() {
@@ -713,12 +749,55 @@ function renderProjects() {
   el.projectSelect.onchange = () => renderComposer();
 }
 
+function renderMobileProjectPanel() {
+  el.mobileProjectCount.textContent = `${state.projects.length} 个项目`;
+  el.mobileProjectList.replaceChildren();
+  if (state.projects.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "电脑端还没有配置可用项目。";
+    el.mobileProjectList.append(empty);
+    return;
+  }
+
+  const selectedId = el.projectSelect.value;
+  for (const project of state.projects) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `mobile-project-row${project.id === selectedId ? " selected" : ""}`;
+    row.setAttribute("aria-pressed", String(project.id === selectedId));
+    const copy = document.createElement("span");
+    copy.className = "mobile-project-copy";
+    const title = document.createElement("strong");
+    title.textContent = project.name;
+    const path = document.createElement("small");
+    path.textContent = project.cwd;
+    copy.append(title, path);
+    const threads = state.threads.filter((thread) => thread.projectId === project.id);
+    const meta = document.createElement("span");
+    meta.className = "mobile-project-meta";
+    const activeCount = threads.filter((thread) => isActiveTask(thread.status)).length;
+    meta.textContent = `${threads.length} 个任务${activeCount ? ` · ${activeCount} 个进行中` : ""}`;
+    row.append(copy, meta);
+    row.addEventListener("click", () => {
+      el.projectSelect.value = project.id;
+      state.selectedId = null;
+      state.mobileTab = "tasks";
+      renderWorkspace();
+      scrollWorkspaceToTop();
+      showToast(`已切换到${project.name}`);
+    });
+    el.mobileProjectList.append(row);
+  }
+}
+
 function renderTaskList() {
   const hasSelection = Boolean(selectedThread());
-  el.taskList.hidden = hasSelection;
-  el.taskFilters.hidden = hasSelection;
+  const mobileNonTask = isMobileViewport() && state.mobileTab !== "tasks";
+  el.taskList.hidden = hasSelection || mobileNonTask;
+  el.taskFilters.hidden = hasSelection || mobileNonTask;
   el.taskHeading.textContent = hasSelection ? "任务详情" : "项目任务";
-  if (hasSelection) return;
+  if (hasSelection || mobileNonTask) return;
 
   el.taskList.replaceChildren();
   const search = state.taskSearch.trim().toLocaleLowerCase();
@@ -1110,6 +1189,7 @@ function renderComposer() {
   const thread = selectedThread();
   const threadBusy = Boolean(thread && isActiveTask(thread.status));
   const queueCount = thread ? (state.queues.get(thread.id)?.length ?? 0) : 0;
+  el.composer.hidden = isMobileViewport() && state.mobileTab !== "tasks";
   el.composerContext.textContent = threadBusy
     ? `${projectName(thread.projectId)} · 任务执行中${queueCount ? ` · ${queueCount} 条排队` : "，完成后可继续"}`
     : thread
@@ -1135,6 +1215,7 @@ function renderApproval() {
 
 async function selectThread(threadId) {
   state.selectedId = threadId;
+  state.mobileTab = "tasks";
   state.timelineAutoFollow.set(threadId, true);
   renderWorkspace();
   scrollWorkspaceToTop();
