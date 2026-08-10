@@ -174,6 +174,8 @@ npx --yes @bubblewrap/cli build
 
 签名后的个人安装包会生成在 `app-release-signed.apk`。签名密钥保存在用户目录的 `~/.bubblewrap/codexpocket.keystore`，不要提交到 GitHub；更换签名密钥后需要同步更新 `public/.well-known/assetlinks.json` 中的 SHA-256 指纹。
 
+另外，`android-app/` 是隔离的 Capacitor Android 工程，用于逐步演进为原生 App。当前版本加载同一个 HTTPS 工作区，后续可以在该目录加入原生通知、文件选择和系统级交互，而不会影响根目录网页版本。
+
 ## 连接管理
 
 在 Mac 本地页面顶部点击“连接管理”，可以查看每个已授权设备的设备类型、在线状态、创建时间和最近活动时间。电脑端可以单独撤销某个设备，也可以“撤销其他全部”；当前管理页面所在的 Mac 会话默认不会被误撤销。
