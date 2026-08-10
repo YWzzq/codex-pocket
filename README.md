@@ -100,6 +100,8 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 也可以双击 `start-windows.bat`。脚本会读取 `.env`、检查 Node.js/Codex，并在首次运行时安装依赖。
 
+Windows 端使用 `codex app-server --stdio` 前台模式，不调用 Unix 专用的 `codex app-server daemon`。如果仍看到 “daemon lifecycle is only supported on Unix platforms”，请确认使用的是本项目的 `start-windows.ps1`，并将 `CODEX_BIN` 设置为 Windows 的 `codex.cmd` 或完整路径。
+
 在 `/setup` 中选择或自动识别 Windows，点击“自动配置 Windows 后台任务”，然后关闭当前 PowerShell 窗口：
 
 ```powershell

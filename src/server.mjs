@@ -2114,6 +2114,7 @@ class CodexBridge extends EventEmitter {
     this.pending = new Map();
     this.nextId = 1;
     this.buffer = "";
+    this.stderrBuffer = "";
     this.status = { state: "offline", detail: "Not started" };
   }
 
@@ -2131,16 +2132,20 @@ class CodexBridge extends EventEmitter {
   async startInternal() {
     this.status = { state: "starting", detail: "Starting local Codex" };
     this.emit("state", this.status);
-    const child = spawn(this.binary, ["app-server"], {
+    const spawnSpec = await resolveCodexSpawn(this.binary);
+    const child = spawn(spawnSpec.command, spawnSpec.args, {
       stdio: ["pipe", "pipe", "pipe"],
       env: process.env,
     });
     this.child = child;
     this.buffer = "";
+    this.stderrBuffer = "";
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => this.handleOutput(chunk));
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", () => undefined);
+    child.stderr.on("data", (chunk) => {
+      this.stderrBuffer = `${this.stderrBuffer}${chunk}`.slice(-4_000);
+    });
     child.on("error", (error) => this.handleExit(child, error));
     child.on("exit", (code, signal) => this.handleExit(child, new Error(`Codex app-server exited (${code ?? signal ?? "unknown"}).`)));
 
@@ -2233,9 +2238,36 @@ class CodexBridge extends EventEmitter {
       pending.reject(error);
     }
     this.pending.clear();
-    this.status = { state: "offline", detail: friendlyError(error) };
+    const stderr = this.stderrBuffer.trim();
+    const detail = stderr || error.message;
+    this.status = { state: "offline", detail: friendlyError(new Error(detail)) };
     this.emit("state", this.status);
   }
+}
+
+async function resolveCodexSpawn(binary) {
+  const args = ["app-server", "--stdio"];
+  if (process.platform !== "win32") return { command: binary, args };
+
+  let resolved = binary;
+  if (!/[\\/]/.test(binary) && !/\.(?:cmd|bat|exe)$/i.test(binary)) {
+    try {
+      const result = await execFileAsync("where.exe", [binary], { timeout: 3_000, windowsHide: true });
+      resolved = result.stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? binary;
+    } catch {
+      resolved = `${binary}.cmd`;
+    }
+  }
+
+  if (/\.(?:cmd|bat)$/i.test(resolved)) {
+    const commandLine = [quoteWindowsArg(resolved), ...args].join(" ");
+    return { command: process.env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", commandLine] };
+  }
+  return { command: resolved, args };
+}
+
+function quoteWindowsArg(value) {
+  return `"${String(value).replaceAll('"', '\\"')}"`;
 }
 
 registry = new ThreadRegistry(THREADS_FILE, new Set(allowedRoots));
