@@ -13,3 +13,5 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home npm run
 ```
 
 Debug APK 位于 `android/app/build/outputs/apk/debug/app-debug.apk`。
+
+当前原生层已处理深色系统状态栏、导航栏，以及 Android 返回键：有网页历史时返回上一页，没有历史时退出 App。
