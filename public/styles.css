@@ -512,6 +512,7 @@ select {
   color: inherit;
   text-align: left;
   background: transparent;
+  contain: layout paint;
 }
 
 .task-row:hover,
@@ -803,6 +804,7 @@ select {
 .timeline-activity,
 .timeline-output {
   width: min(100%, 660px);
+  contain: layout paint;
 }
 
 .timeline-message {

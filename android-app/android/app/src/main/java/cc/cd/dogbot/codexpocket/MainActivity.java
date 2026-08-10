@@ -3,7 +3,9 @@ package cc.cd.dogbot.codexpocket;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
 import android.view.Window;
+import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.core.view.WindowCompat;
@@ -20,6 +22,7 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         configureSystemBars();
         configureBackNavigation();
+        configureWebView();
     }
 
     private void configureSystemBars() {
@@ -50,5 +53,12 @@ public class MainActivity extends BridgeActivity {
                 getOnBackPressedDispatcher().onBackPressed();
             }
         });
+    }
+
+    private void configureWebView() {
+        if (getBridge() == null) return;
+        WebView webView = getBridge().getWebView();
+        webView.setBackgroundColor(SURFACE_COLOR);
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
     }
 }

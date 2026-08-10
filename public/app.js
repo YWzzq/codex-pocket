@@ -38,6 +38,8 @@ const state = {
   titleTimer: null,
   defaultDocumentTitle: document.title,
   forkPending: new Set(),
+  renderFramePending: false,
+  taskSearchTimer: null,
   notificationPermission: initialNotificationPermission(),
 };
 
@@ -231,7 +233,8 @@ el.newTaskButton.addEventListener("click", () => {
 
 el.taskSearch.addEventListener("input", () => {
   state.taskSearch = el.taskSearch.value;
-  renderTaskList();
+  window.clearTimeout(state.taskSearchTimer);
+  state.taskSearchTimer = window.setTimeout(() => renderTaskList(), 70);
 });
 el.taskStatusFilter.addEventListener("change", () => {
   state.taskStatusFilter = el.taskStatusFilter.value;
@@ -644,6 +647,15 @@ function renderWorkspace() {
   renderInstallButton();
   renderNotificationButton();
   renderMobileNavigation();
+}
+
+function scheduleWorkspaceRender() {
+  if (state.renderFramePending) return;
+  state.renderFramePending = true;
+  window.requestAnimationFrame(() => {
+    state.renderFramePending = false;
+    if (state.session) renderWorkspace();
+  });
 }
 
 function switchMobileTab(tab) {
@@ -1402,7 +1414,7 @@ function handleSocketEvent(event) {
   } else if (event.type === "error") {
     appendTimeline(event.threadId, { type: "activity", label: event.message, at: event.at });
   }
-  if (state.selectedId === event.threadId) renderWorkspace();
+  if (state.selectedId === event.threadId) scheduleWorkspaceRender();
 }
 
 function appendDelta(threadId, itemId, type, role, delta, turnId = null) {
