@@ -111,6 +111,41 @@ app.get("/api/setup/status", requireLocalAdmin, asyncHandler(async (req, res) =>
   });
 }));
 
+app.get("/api/setup/config", requireLocalAdmin, asyncHandler(async (req, res) => {
+  res.json({
+    publicUrl: publicUrl.toString().replace(/\/$/, ""),
+    codexBin: CODEX_BIN,
+    host: HOST,
+    port: PORT,
+  });
+}));
+
+app.post("/api/setup/config", requireLocalAdmin, asyncHandler(async (req, res) => {
+  const rawPublicUrl = typeof req.body?.publicUrl === "string" ? req.body.publicUrl.trim() : "";
+  const codexBin = typeof req.body?.codexBin === "string" ? req.body.codexBin.trim() : "";
+  if (!rawPublicUrl || rawPublicUrl.length > 500) {
+    res.status(400).json({ error: "请输入有效的公网访问地址。" });
+    return;
+  }
+  if (!codexBin || codexBin.length > 500 || /[\r\n]/.test(codexBin)) {
+    res.status(400).json({ error: "请输入有效的 Codex 可执行文件路径或命令。" });
+    return;
+  }
+  let nextUrl;
+  try {
+    nextUrl = normalizePublicUrl(rawPublicUrl, HOST, PORT);
+  } catch {
+    res.status(400).json({ error: "公网地址必须是有效的 http 或 https 地址。" });
+    return;
+  }
+  await persistEnvEntries({ PUBLIC_URL: nextUrl.toString().replace(/\/$/, ""), CODEX_BIN: codexBin });
+  res.json({
+    ok: true,
+    restartRequired: true,
+    config: { publicUrl: nextUrl.toString().replace(/\/$/, ""), codexBin },
+  });
+}));
+
 app.get("/setup", (req, res) => {
   if (!isLocalAdminRequest(req)) {
     res.status(404).end();
@@ -1739,16 +1774,22 @@ function applyAllowedRoots(roots) {
 }
 
 async function persistAllowedRoots(roots) {
+  await persistEnvEntries({ CODEX_POCKET_ROOTS: roots.join(path.delimiter) });
+}
+
+async function persistEnvEntries(entries) {
   let body = "";
   try {
     body = await fs.readFile(ENV_FILE, "utf8");
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
-  const encoded = roots.map(escapeEnvValue).join(path.delimiter);
-  const line = `CODEX_POCKET_ROOTS="${encoded}"`;
-  if (/^CODEX_POCKET_ROOTS=.*$/m.test(body)) body = body.replace(/^CODEX_POCKET_ROOTS=.*$/m, line);
-  else body = `${body.trimEnd()}\n${line}\n`;
+  for (const [key, value] of Object.entries(entries)) {
+    const line = `${key}="${escapeEnvValue(String(value))}"`;
+    const pattern = new RegExp(`^${key}=.*$`, "m");
+    if (pattern.test(body)) body = body.replace(pattern, line);
+    else body = `${body.trimEnd()}\n${line}\n`;
+  }
   const temp = `${ENV_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
   await fs.writeFile(temp, body, { encoding: "utf8", mode: 0o600 });
   await fs.rename(temp, ENV_FILE);

@@ -24,20 +24,42 @@
         </div>
       </section>
 
+      <nav class="wizard-steps" aria-label="部署步骤">
+        <button class="wizard-step-button active" type="button" data-step-target="1">1 环境</button>
+        <button class="wizard-step-button" type="button" data-step-target="2">2 配置</button>
+        <button class="wizard-step-button" type="button" data-step-target="3">3 项目</button>
+        <button class="wizard-step-button" type="button" data-step-target="4">4 Tunnel</button>
+        <button class="wizard-step-button" type="button" data-step-target="5">5 配对</button>
+      </nav>
+
       <p id="setupError" class="setup-error" role="alert" hidden></p>
 
       <section class="setup-grid">
-        <article id="environmentCard" class="setup-card">
+        <article id="environmentCard" class="setup-card wizard-step active" data-step="1">
           <div class="card-heading">
             <div><p class="eyebrow">步骤 1</p><h2>环境检查</h2></div>
             <span id="environmentStatus" class="step-status pending">检查中</span>
           </div>
           <div id="environmentChecks" class="check-list"></div>
+          <div class="card-actions step-actions"><button id="environmentNext" class="button primary" type="button">下一步：填写配置</button></div>
         </article>
 
-        <article id="projectsCard" class="setup-card">
+        <article id="configCard" class="setup-card wizard-step" data-step="2">
           <div class="card-heading">
-            <div><p class="eyebrow">步骤 2</p><h2>选择允许的项目</h2></div>
+            <div><p class="eyebrow">步骤 2</p><h2>填写基础配置</h2></div>
+            <span id="configStatus" class="step-status pending">待填写</span>
+          </div>
+          <p class="card-copy">配置只写入这台 Mac 的本地 `.env`，不会上传。保存后需要重启 Mac 端服务才会生效。</p>
+          <form id="configForm" class="config-form">
+            <label><span>公网访问地址</span><input id="publicUrlInput" type="url" placeholder="https://codex.example.com" autocomplete="url" required /></label>
+            <label><span>Codex 可执行文件</span><input id="codexBinInput" type="text" placeholder="codex 或 /Applications/.../codex" autocomplete="off" required /></label>
+            <div class="card-actions"><button class="button secondary" type="button" data-step-back="1">上一步</button><button id="saveConfigButton" class="button primary" type="submit">保存并下一步</button></div>
+          </form>
+        </article>
+
+        <article id="projectsCard" class="setup-card wizard-step" data-step="3">
+          <div class="card-heading">
+            <div><p class="eyebrow">步骤 3</p><h2>选择允许的项目</h2></div>
             <span id="projectsStatus" class="step-status pending">待检查</span>
           </div>
           <p class="card-copy">手机只能操作你在这里勾选的 Codex 项目目录。项目目录不会上传到网络。</p>
@@ -45,14 +67,15 @@
             <p class="muted">点击“发现 Codex 项目”开始读取历史项目。</p>
           </div>
           <div class="card-actions">
+            <button class="button secondary" type="button" data-step-back="2">上一步</button>
             <button id="discoverButton" class="button secondary" type="button">发现 Codex 项目</button>
-            <button id="saveProjectsButton" class="button primary" type="button" disabled>保存选择</button>
+            <button id="saveProjectsButton" class="button primary" type="button" disabled>保存并下一步</button>
           </div>
         </article>
 
-        <article id="tunnelCard" class="setup-card">
+        <article id="tunnelCard" class="setup-card wizard-step" data-step="4">
           <div class="card-heading">
-            <div><p class="eyebrow">步骤 3</p><h2>Cloudflare Tunnel</h2></div>
+            <div><p class="eyebrow">步骤 4</p><h2>Cloudflare Tunnel</h2></div>
             <span id="tunnelStatus" class="step-status pending">待检查</span>
           </div>
           <p class="card-copy">Tunnel 将公网 HTTPS 请求带回本机，不需要开放校园网入站端口。</p>
@@ -63,11 +86,12 @@
           </ol>
           <p id="publicUrl" class="code-line">公网地址检查中…</p>
           <p class="manual-note">缺少授权时，请在终端运行 <code>cloudflared tunnel login</code>，完成浏览器授权后再点击重新检查。</p>
+          <div class="card-actions step-actions"><button class="button secondary" type="button" data-step-back="3">上一步</button><button id="tunnelNext" class="button primary" type="button">下一步：手机配对</button></div>
         </article>
 
-        <article id="pairCard" class="setup-card pair-card">
+        <article id="pairCard" class="setup-card pair-card wizard-step" data-step="5">
           <div class="card-heading">
-            <div><p class="eyebrow">步骤 4</p><h2>手机配对</h2></div>
+            <div><p class="eyebrow">步骤 5</p><h2>手机配对</h2></div>
             <span id="pairStatus" class="step-status pending">待生成</span>
           </div>
           <div class="pair-content">
@@ -78,6 +102,7 @@
               <button id="pairButton" class="button primary" type="button">生成配对二维码</button>
             </div>
           </div>
+          <div class="card-actions step-actions"><button class="button secondary" type="button" data-step-back="4">上一步</button><a class="button primary" href="/">完成，打开工作区</a></div>
         </article>
       </section>
 

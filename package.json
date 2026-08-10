@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs",
-    "check": "node --check src/server.mjs && node --check public/app.js && node --check scripts/macos-service.mjs",
+    "check": "node --check src/server.mjs && node --check public/app.js && node --check public/setup.js && node --check scripts/macos-service.mjs",
     "macos:install": "node scripts/macos-service.mjs install",
     "macos:start": "node scripts/macos-service.mjs start",
     "macos:stop": "node scripts/macos-service.mjs stop",

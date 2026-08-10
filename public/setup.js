@@ -1,4 +1,4 @@
-const state = { candidates: [], selectedRoots: new Set() };
+const state = { candidates: [], selectedRoots: new Set(), currentStep: 1 };
 
 const el = {
   refreshButton: document.querySelector("#refreshButton"),
@@ -7,6 +7,13 @@ const el = {
   environmentStatus: document.querySelector("#environmentStatus"),
   environmentChecks: document.querySelector("#environmentChecks"),
   projectsStatus: document.querySelector("#projectsStatus"),
+  configStatus: document.querySelector("#configStatus"),
+  configForm: document.querySelector("#configForm"),
+  publicUrlInput: document.querySelector("#publicUrlInput"),
+  codexBinInput: document.querySelector("#codexBinInput"),
+  saveConfigButton: document.querySelector("#saveConfigButton"),
+  environmentNext: document.querySelector("#environmentNext"),
+  tunnelNext: document.querySelector("#tunnelNext"),
   projectCandidates: document.querySelector("#projectCandidates"),
   discoverButton: document.querySelector("#discoverButton"),
   saveProjectsButton: document.querySelector("#saveProjectsButton"),
@@ -23,6 +30,18 @@ el.refreshButton.addEventListener("click", () => void refreshAll());
 el.discoverButton.addEventListener("click", () => void discoverProjects());
 el.saveProjectsButton.addEventListener("click", () => void saveProjects());
 el.pairButton.addEventListener("click", () => void loadPairing());
+el.environmentNext.addEventListener("click", () => goToStep(2));
+el.tunnelNext.addEventListener("click", () => goToStep(5));
+el.configForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void saveConfig();
+});
+for (const button of document.querySelectorAll("[data-step-target]")) {
+  button.addEventListener("click", () => goToStep(Number(button.dataset.stepTarget)));
+}
+for (const button of document.querySelectorAll("[data-step-back]")) {
+  button.addEventListener("click", () => goToStep(Number(button.dataset.stepBack)));
+}
 void refreshAll();
 
 async function request(url, options = {}) {
@@ -39,6 +58,7 @@ async function refreshAll() {
   setStep(el.tunnelStatus, "检查中", "pending");
   try {
     const status = await request("/api/setup/status");
+    await loadConfig();
     renderStatus(status);
     await discoverProjects(true);
   } catch (error) {
@@ -46,6 +66,31 @@ async function refreshAll() {
     setStep(el.environmentStatus, "无法检查", "error");
   } finally {
     el.lastChecked.textContent = `最近检查：${new Date().toLocaleTimeString()}`;
+  }
+}
+
+async function loadConfig() {
+  const config = await request("/api/setup/config");
+  el.publicUrlInput.value = config.publicUrl ?? "";
+  el.codexBinInput.value = config.codexBin ?? "codex";
+  setStep(el.configStatus, "已读取", "ok");
+}
+
+async function saveConfig() {
+  el.saveConfigButton.disabled = true;
+  setError("");
+  try {
+    const result = await request("/api/setup/config", {
+      method: "POST",
+      body: JSON.stringify({ publicUrl: el.publicUrlInput.value, codexBin: el.codexBinInput.value }),
+    });
+    setStep(el.configStatus, result.restartRequired ? "已保存，重启后生效" : "已保存", "ok");
+    goToStep(3);
+  } catch (error) {
+    setError(error.message);
+    setStep(el.configStatus, "保存失败", "error");
+  } finally {
+    el.saveConfigButton.disabled = false;
   }
 }
 
@@ -135,6 +180,8 @@ async function saveProjects() {
     await request("/api/admin/projects", { method: "POST", body: JSON.stringify({ roots: [...state.selectedRoots] }) });
     setStep(el.projectsStatus, "已保存", "ok");
     await discoverProjects(true);
+    setStep(el.projectsStatus, "已保存", "ok");
+    goToStep(4);
   } catch (error) {
     setError(error.message);
     el.saveProjectsButton.disabled = false;
@@ -161,6 +208,20 @@ async function loadPairing() {
 function setStep(node, text, kind) {
   node.textContent = text;
   node.className = `step-status ${kind}`;
+}
+
+function goToStep(step) {
+  if (!Number.isInteger(step) || step < 1 || step > 5) return;
+  state.currentStep = step;
+  for (const card of document.querySelectorAll(".wizard-step[data-step]")) {
+    card.classList.toggle("active", Number(card.dataset.step) === step);
+  }
+  for (const button of document.querySelectorAll("[data-step-target]")) {
+    const target = Number(button.dataset.stepTarget);
+    button.classList.toggle("active", target === step);
+    button.classList.toggle("complete", target < step);
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function setError(message) {
