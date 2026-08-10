@@ -851,6 +851,12 @@ async function releaseThread() {
   try {
     el.releaseButton.disabled = true;
     const result = await request(`/api/threads/${encodeURIComponent(thread.id)}/release`, { method: "POST" });
+    if (result.notFound) {
+      state.selectedId = null;
+      renderWorkspace();
+      showToast("这个线程已不存在，已清除占用状态；请新建任务继续。");
+      return;
+    }
     if (result.thread) upsertThread(result.thread);
     renderWorkspace();
     showToast(result.recovered

@@ -306,7 +306,16 @@ app.post("/api/threads/:threadId/retry", requireSession, asyncHandler(async (req
 }));
 
 app.post("/api/threads/:threadId/release", requireSession, asyncHandler(async (req, res) => {
-  const thread = await requireOwnedThreadFresh(req.params.threadId);
+  let thread;
+  try {
+    thread = await requireOwnedThreadFresh(req.params.threadId);
+  } catch (error) {
+    if (error.statusCode === 404) {
+      res.json({ ok: true, status: "interrupted", recovered: true, notFound: true });
+      return;
+    }
+    throw error;
+  }
   const turnId = activeTurns.get(thread.id) ?? thread.activeTurnId;
   if (turnId) {
     const result = await stopThreadTurn(thread, turnId);
@@ -941,6 +950,7 @@ async function requireOwnedThreadFresh(threadId) {
     await syncCodexThreads().catch(() => undefined);
     thread = registry.get(threadId);
   }
+  if (!thread) thread = await registry.restore(threadId);
   if (!thread) return requireOwnedThread(threadId);
   return thread;
 }
@@ -1437,6 +1447,21 @@ class DeviceRegistry {
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
+  }
+
+  async restore(id) {
+    try {
+      const raw = await fs.readFile(this.file, "utf8");
+      const parsed = JSON.parse(raw);
+      const record = Array.isArray(parsed?.threads) ? parsed.threads.find((entry) => entry?.id === id) : null;
+      if (record && this.isAllowedCwd(record.cwd)) {
+        this.records.set(record.id, record);
+        return record;
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    return null;
   }
 
   get(id) {
