@@ -517,6 +517,8 @@ select {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .text-button {
@@ -561,6 +563,45 @@ select {
   margin: -8px 0 12px;
   color: var(--amber);
   font-size: 12px;
+}
+
+.detail-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 8px;
+}
+
+.detail-tools .muted {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-panel {
+  margin: 0 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #171a17;
+}
+
+.diff-status {
+  padding: 9px 11px 0;
+  font-size: 12px;
+}
+
+.diff-content {
+  max-height: 360px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px 11px 12px;
+  color: #c7d2c1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
 }
 
 .timeline-shell {
@@ -632,12 +673,13 @@ select {
   width: min(100%, 660px);
 }
 
-.timeline-reply .timeline-message {
-  width: 100%;
-  box-sizing: border-box;
+.timeline-reply-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.branch-button {
+.reply-action-button {
   padding: 3px 0;
   border: 0;
   color: var(--muted);
@@ -645,9 +687,17 @@ select {
   font-size: 12px;
 }
 
-.branch-button:hover:not(:disabled) {
+.reply-action-button:hover:not(:disabled) {
   color: var(--green);
   text-decoration: underline;
+}
+
+.timeline-reply .timeline-message {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.branch-button {
 }
 
 .timeline-activity {

@@ -10,6 +10,7 @@ const state = {
   threads: [],
   selectedId: null,
   timelines: new Map(),
+  diffs: new Map(),
   timelineAutoFollow: new Map(),
   approvals: [],
   sessions: [],
@@ -65,6 +66,8 @@ const el = {
   detailView: document.querySelector("#detailView"),
   backButton: document.querySelector("#backButton"),
   interruptButton: document.querySelector("#interruptButton"),
+  renameButton: document.querySelector("#renameButton"),
+  archiveButton: document.querySelector("#archiveButton"),
   retryButton: document.querySelector("#retryButton"),
   releaseButton: document.querySelector("#releaseButton"),
   detailTitle: document.querySelector("#detailTitle"),
@@ -72,6 +75,11 @@ const el = {
   detailWriter: document.querySelector("#detailWriter"),
   detailStatus: document.querySelector("#detailStatus"),
   jumpLatestButton: document.querySelector("#jumpLatestButton"),
+  diffButton: document.querySelector("#diffButton"),
+  diffSummary: document.querySelector("#diffSummary"),
+  diffPanel: document.querySelector("#diffPanel"),
+  diffStatus: document.querySelector("#diffStatus"),
+  diffContent: document.querySelector("#diffContent"),
   timeline: document.querySelector("#timeline"),
   composer: document.querySelector("#composer"),
   promptInput: document.querySelector("#promptInput"),
@@ -207,6 +215,9 @@ el.deviceButton.addEventListener("click", () => {
 el.notificationButton.addEventListener("click", () => void enableNotifications());
 el.retryButton.addEventListener("click", () => void retryThread());
 el.releaseButton.addEventListener("click", () => void releaseThread());
+el.renameButton.addEventListener("click", () => void renameThread());
+el.archiveButton.addEventListener("click", () => void archiveThread());
+el.diffButton.addEventListener("click", () => void loadGitDiff());
 el.jumpLatestButton.addEventListener("click", () => jumpToLatest());
 el.timeline.addEventListener("scroll", () => handleTimelineScroll());
 
@@ -541,6 +552,7 @@ function resetToPairing() {
   state.threads = [];
   state.selectedId = null;
   state.timelines.clear();
+  state.diffs.clear();
   state.timelineAutoFollow.clear();
   state.approvals = [];
   showPairing("此浏览器已断开连接。");
@@ -729,6 +741,7 @@ function renderDetail() {
   el.detailView.hidden = !thread;
   if (!thread) {
     el.jumpLatestButton.hidden = true;
+    el.diffPanel.hidden = true;
     return;
   }
   el.detailTitle.textContent = thread.title;
@@ -736,11 +749,14 @@ function renderDetail() {
   el.detailStatus.className = `status-label ${thread.status}`;
   el.detailStatus.textContent = statusLabel(thread.status);
   el.interruptButton.hidden = !["running", "starting", "approval", "stopping"].includes(thread.status);
+  el.renameButton.hidden = false;
+  el.archiveButton.hidden = isActiveTask(thread.status) || Boolean(thread.writer);
   el.retryButton.hidden = !["failed", "interrupted"].includes(thread.status);
   el.releaseButton.hidden = !thread.writer;
   el.releaseButton.textContent = isActiveTask(thread.status) ? "停止并释放" : "释放占用";
   el.detailWriter.hidden = !thread.writer;
   el.detailWriter.textContent = thread.writer ? `当前占用设备：${thread.writer.device} · ${relativeTime(thread.writer.startedAt)}开始` : "";
+  renderGitDiff(thread.id);
   renderTimeline(thread.id);
 }
 
@@ -778,14 +794,22 @@ function renderTimeline(threadId) {
       continue;
     }
     reply.append(node);
+    const actions = document.createElement("div");
+    actions.className = "timeline-reply-actions";
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "reply-action-button";
+    copyButton.textContent = "复制回复";
+    copyButton.addEventListener("click", () => void copyReply(entry.text));
     const branchButton = document.createElement("button");
     branchButton.type = "button";
-    branchButton.className = "branch-button";
+    branchButton.className = "reply-action-button branch-button";
     const branchKey = `${threadId}:${entry.turnId}`;
     branchButton.disabled = state.forkPending.has(branchKey);
     branchButton.textContent = branchButton.disabled ? "正在创建分支…" : "创建分支继续";
     branchButton.addEventListener("click", () => void forkThread(threadId, entry.turnId));
-    reply.append(branchButton);
+    actions.append(copyButton, branchButton);
+    reply.append(actions);
     el.timeline.append(reply);
   }
   window.requestAnimationFrame(() => {
@@ -794,6 +818,62 @@ function renderTimeline(threadId) {
     else el.timeline.scrollTop = previousScrollTop;
     renderJumpLatestButton();
   });
+}
+
+async function copyReply(text) {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast("已复制回复");
+  } catch {
+    showToast("当前浏览器不允许复制，请长按文字选择复制");
+  }
+}
+
+function renderGitDiff(threadId) {
+  const diff = state.diffs.get(threadId);
+  el.diffPanel.hidden = !diff;
+  el.diffButton.textContent = diff?.loading ? "正在读取 Git Diff…" : diff ? "刷新 Git Diff" : "查看 Git Diff";
+  el.diffButton.disabled = Boolean(diff?.loading);
+  el.diffSummary.textContent = diff?.data?.available ? `分支：${diff.data.branch}` : "";
+  if (!diff) {
+    el.diffStatus.textContent = "";
+    el.diffContent.textContent = "";
+    return;
+  }
+  if (diff.loading) {
+    el.diffStatus.textContent = "正在读取项目状态…";
+    el.diffContent.textContent = "";
+    return;
+  }
+  if (diff.error) {
+    el.diffStatus.textContent = diff.error;
+    el.diffContent.textContent = "";
+    return;
+  }
+  const data = diff.data;
+  if (!data?.available) {
+    el.diffStatus.textContent = data?.reason ?? "Git Diff 暂不可用";
+    el.diffContent.textContent = "";
+    return;
+  }
+  const changedFiles = data.status?.trim() ? data.status.trim().split("\n").length : 0;
+  el.diffStatus.textContent = `${data.branch} · ${changedFiles ? `${changedFiles} 个文件有变化` : "工作区干净"}${data.truncated ? " · Diff 内容已截断" : ""}`;
+  el.diffContent.textContent = data.diff || "没有未提交的代码差异。";
+}
+
+async function loadGitDiff() {
+  const thread = selectedThread();
+  if (!thread) return;
+  state.diffs.set(thread.id, { loading: true });
+  renderGitDiff(thread.id);
+  try {
+    const data = await request(`/api/threads/${encodeURIComponent(thread.id)}/diff`);
+    state.diffs.set(thread.id, { data });
+  } catch (error) {
+    state.diffs.set(thread.id, { error: error.message });
+  }
+  if (state.selectedId === thread.id) renderGitDiff(thread.id);
 }
 
 function isTimelineAtBottom() {
@@ -844,6 +924,46 @@ async function forkThread(threadId, lastTurnId) {
   } finally {
     state.forkPending.delete(branchKey);
     if (state.selectedId === threadId) renderTimeline(threadId);
+  }
+}
+
+async function renameThread() {
+  const thread = selectedThread();
+  if (!thread) return;
+  const title = window.prompt("修改对话名称", thread.title)?.trim();
+  if (!title || title === thread.title) return;
+  try {
+    const result = await request(`/api/threads/${encodeURIComponent(thread.id)}`, {
+      method: "PATCH",
+      body: { title },
+    });
+    upsertThread(result.thread);
+    renderWorkspace();
+    showToast("对话名称已更新");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function archiveThread() {
+  const thread = selectedThread();
+  if (!thread || el.archiveButton.hidden) return;
+  if (!window.confirm(`确定归档“${thread.title}”吗？归档后它不会再出现在任务列表中。`)) return;
+  try {
+    el.archiveButton.disabled = true;
+    await request(`/api/threads/${encodeURIComponent(thread.id)}`, { method: "DELETE" });
+    state.threads = state.threads.filter((entry) => entry.id !== thread.id);
+    state.timelines.delete(thread.id);
+    state.diffs.delete(thread.id);
+    state.timelineAutoFollow.delete(thread.id);
+    state.selectedId = null;
+    renderWorkspace();
+    scrollWorkspaceToTop();
+    showToast("对话已归档");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    el.archiveButton.disabled = false;
   }
 }
 
@@ -1044,6 +1164,15 @@ function handleSocketEvent(event) {
     const previous = state.threads.find((thread) => thread.id === event.thread?.id);
     notifyTaskUpdate(event.thread, previous);
     upsertThread(event.thread);
+    renderWorkspace();
+    return;
+  }
+  if (event.type === "thread_archived") {
+    state.threads = state.threads.filter((thread) => thread.id !== event.threadId);
+    state.timelines.delete(event.threadId);
+    state.diffs.delete(event.threadId);
+    state.timelineAutoFollow.delete(event.threadId);
+    if (state.selectedId === event.threadId) state.selectedId = null;
     renderWorkspace();
     return;
   }

@@ -96,6 +96,8 @@
           <div class="detail-topline">
             <button id="backButton" class="text-button" type="button">‹ 全部任务</button>
             <div class="detail-actions">
+              <button id="renameButton" class="button secondary compact" type="button">重命名</button>
+              <button id="archiveButton" class="button secondary compact" type="button">归档</button>
               <button id="retryButton" class="button secondary compact" type="button" hidden>重试</button>
               <button id="releaseButton" class="button secondary compact" type="button" hidden>释放占用</button>
               <button id="interruptButton" class="icon-button pause" type="button" aria-label="停止当前任务">Ⅱ</button>
@@ -109,6 +111,14 @@
             <span id="detailStatus" class="status-label"></span>
           </div>
           <p id="detailWriter" class="writer-label" hidden></p>
+          <div class="detail-tools">
+            <button id="diffButton" class="button secondary compact" type="button">查看 Git Diff</button>
+            <span id="diffSummary" class="muted"></span>
+          </div>
+          <section id="diffPanel" class="diff-panel" hidden>
+            <div id="diffStatus" class="diff-status muted"></div>
+            <pre id="diffContent" class="diff-content"></pre>
+          </section>
           <div class="timeline-shell">
             <div id="timeline" class="timeline" aria-live="polite"></div>
             <button id="jumpLatestButton" class="jump-latest-button" type="button" hidden>↓ 跳到最新</button>

@@ -1,11 +1,12 @@
 import crypto from "node:crypto";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import express from "express";
 import QRCode from "qrcode";
@@ -27,6 +28,7 @@ const SESSION_IDLE_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_ABSOLUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEVICE_COOKIE_MAX_AGE_MS = 10 * 365 * 24 * 60 * 60 * 1000;
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+const execFileAsync = promisify(execFile);
 const MAX_PROMPT_LENGTH = 16_000;
 const MAX_THREADS = 80;
 const LOCAL_ORIGINS = new Set([
@@ -54,6 +56,8 @@ const approvals = new Map();
 const activeTurns = new Map();
 const pendingTurnStarts = new Set();
 const threadWriters = new Map();
+const threadQueues = new Map();
+const queueDrainers = new Set();
 const loadedThreads = new Set();
 let bridge;
 let modelCache = { loadedAt: 0, models: [] };
@@ -223,6 +227,12 @@ app.get("/api/threads/:threadId", requireSession, asyncHandler(async (req, res) 
   res.json({ thread: publicThread(thread), history });
 }));
 
+app.get("/api/threads/:threadId/diff", requireSession, asyncHandler(async (req, res) => {
+  const thread = await requireOwnedThreadFresh(req.params.threadId);
+  const result = await readGitDiff(thread.cwd);
+  res.json(result);
+}));
+
 app.post("/api/threads", requireSession, asyncHandler(async (req, res) => {
   const project = projectById.get(String(req.body?.projectId ?? ""));
   const prompt = validatePrompt(req.body?.prompt);
@@ -266,10 +276,68 @@ app.post("/api/threads", requireSession, asyncHandler(async (req, res) => {
 app.post("/api/threads/:threadId/messages", requireSession, asyncHandler(async (req, res) => {
   const thread = await requireOwnedThreadFresh(req.params.threadId);
   const prompt = validatePrompt(req.body?.prompt);
+  if (isThreadExecutionActive(thread)) {
+    const queued = enqueueThreadPrompt(thread.id, prompt, req.session);
+    res.status(202).json({
+      queued: true,
+      queuePosition: threadQueues.get(thread.id)?.length ?? 1,
+      queue: publicThreadQueue(thread.id),
+      thread: publicThread(thread),
+    });
+    return;
+  }
   await bridge.start();
   await ensureThreadLoaded(thread);
   const turn = await startTurn(thread, prompt, req.session);
   res.status(201).json({ thread: publicThread(registry.get(thread.id)), turnId: turn.id });
+}));
+
+app.patch("/api/threads/:threadId", requireSession, asyncHandler(async (req, res) => {
+  const thread = await requireOwnedThreadFresh(req.params.threadId);
+  const title = validateThreadTitle(req.body?.title);
+  await bridge.start();
+  await bridge.request("thread/name/set", { threadId: thread.id, name: title });
+  const updated = await updateThread(thread.id, { title });
+  res.json({ thread: publicThread(updated) });
+}));
+
+app.delete("/api/threads/:threadId", requireSession, asyncHandler(async (req, res) => {
+  const thread = await requireOwnedThreadFresh(req.params.threadId);
+  if (isActiveTask(thread.status) || activeTurns.has(thread.id) || pendingTurnStarts.has(thread.id)) {
+    const error = new Error("正在执行的任务不能归档，请先停止任务。");
+    error.statusCode = 409;
+    throw error;
+  }
+  await bridge.start();
+  await bridge.request("thread/archive", { threadId: thread.id }).catch((error) => {
+    if (!isMissingProcessError(error)) throw error;
+  });
+  clearThreadExecution(thread.id);
+  threadQueues.delete(thread.id);
+  loadedThreads.delete(thread.id);
+  await registry.remove(thread.id);
+  broadcast({ type: "thread_archived", threadId: thread.id });
+  res.json({ ok: true, threadId: thread.id });
+}));
+
+app.delete("/api/threads/:threadId/queue/:queueId", requireSession, asyncHandler(async (req, res) => {
+  const thread = await requireOwnedThreadFresh(req.params.threadId);
+  const queue = threadQueues.get(thread.id) ?? [];
+  const next = queue.filter((entry) => entry.id !== req.params.queueId);
+  if (next.length === queue.length) {
+    res.status(404).json({ error: "That queued message no longer exists." });
+    return;
+  }
+  if (next.length > 0) threadQueues.set(thread.id, next);
+  else threadQueues.delete(thread.id);
+  broadcastThreadQueue(thread.id);
+  res.json({ ok: true, queue: publicThreadQueue(thread.id) });
+}));
+
+app.delete("/api/threads/:threadId/queue", requireSession, asyncHandler(async (req, res) => {
+  const thread = await requireOwnedThreadFresh(req.params.threadId);
+  clearThreadQueue(thread.id);
+  res.json({ ok: true, queue: [] });
 }));
 
 app.post("/api/threads/:threadId/fork", requireSession, asyncHandler(async (req, res) => {
@@ -583,6 +651,80 @@ function clearThreadExecution(threadId) {
   }
 }
 
+function isThreadExecutionActive(thread) {
+  return Boolean(thread && (
+    pendingTurnStarts.has(thread.id)
+    || activeTurns.has(thread.id)
+    || thread.activeTurnId
+    || threadWriters.has(thread.id)
+    || isActiveTask(thread.status)
+  ));
+}
+
+function enqueueThreadPrompt(threadId, prompt, session) {
+  const queue = threadQueues.get(threadId) ?? [];
+  const entry = {
+    id: crypto.randomUUID(),
+    prompt,
+    device: session?.device ?? "其他设备",
+    sessionId: session?.id ?? null,
+    createdAt: Date.now(),
+  };
+  queue.push(entry);
+  threadQueues.set(threadId, queue);
+  broadcastThreadQueue(threadId);
+  return entry;
+}
+
+function publicThreadQueue(threadId) {
+  return (threadQueues.get(threadId) ?? []).map((entry, index) => ({
+    id: entry.id,
+    prompt: entry.prompt,
+    device: entry.device,
+    createdAt: entry.createdAt,
+    position: index + 1,
+  }));
+}
+
+function broadcastThreadQueue(threadId) {
+  broadcast({ type: "thread_queue", threadId, queue: publicThreadQueue(threadId) });
+}
+
+function clearThreadQueue(threadId) {
+  if (!threadQueues.delete(threadId)) return;
+  broadcastThreadQueue(threadId);
+}
+
+async function drainThreadQueue(threadId) {
+  if (queueDrainers.has(threadId)) return;
+  queueDrainers.add(threadId);
+  try {
+    const thread = registry.get(threadId);
+    if (!thread || isThreadExecutionActive(thread)) return;
+    const queue = threadQueues.get(threadId);
+    const entry = queue?.shift();
+    if (!entry) {
+      threadQueues.delete(threadId);
+      return;
+    }
+    if (queue.length === 0) threadQueues.delete(threadId);
+    broadcastThreadQueue(threadId);
+    try {
+      await bridge.start();
+      await ensureThreadLoaded(thread);
+      await startTurn(thread, entry.prompt, { id: entry.sessionId, device: entry.device });
+    } catch (error) {
+      const nextQueue = threadQueues.get(threadId) ?? [];
+      nextQueue.unshift(entry);
+      threadQueues.set(threadId, nextQueue);
+      broadcast({ type: "error", threadId, message: friendlyError(error), at: Date.now() });
+      broadcastThreadQueue(threadId);
+    }
+  } finally {
+    queueDrainers.delete(threadId);
+  }
+}
+
 function isMissingProcessError(error) {
   const message = String(error?.message ?? "");
   return /(process|进程|thread|线程).*(not found|does not exist|不存在)|(not found|does not exist|不存在).*(process|进程|thread|线程)/i.test(message);
@@ -755,6 +897,7 @@ async function handleCodexNotification(message) {
     threadWriters.delete(event.threadId);
     const status = event.status === "completed" ? "completed" : event.status === "interrupted" ? "interrupted" : "failed";
     await updateThread(event.threadId, { status, activeTurnId: null });
+    if (status === "completed") void drainThreadQueue(event.threadId);
   }
   if (event.type === "thread_status") {
     const status = mapCodexStatus(event.status);
@@ -1229,6 +1372,54 @@ function validatePrompt(value) {
   return prompt;
 }
 
+function validateThreadTitle(value) {
+  if (typeof value !== "string") {
+    const error = new Error("请输入对话名称。");
+    error.statusCode = 400;
+    throw error;
+  }
+  const title = value.replace(/\s+/g, " ").trim();
+  if (!title || title.length > 96) {
+    const error = new Error("对话名称需要为 1 到 96 个字符。");
+    error.statusCode = 400;
+    throw error;
+  }
+  return title;
+}
+
+function isActiveTask(status) {
+  return ["starting", "running", "approval", "stopping"].includes(status);
+}
+
+async function readGitDiff(cwd) {
+  const options = { cwd, timeout: 10_000, maxBuffer: 2 * 1024 * 1024, windowsHide: true };
+  try {
+    await execFileAsync("git", ["rev-parse", "--show-toplevel"], options);
+  } catch (error) {
+    const message = String(error?.stderr || error?.message || "");
+    if (error?.code === "ENOENT") return { available: false, reason: "当前电脑未安装 Git。" };
+    if (/not a git repository/i.test(message)) return { available: false, reason: "这个项目不是 Git 仓库。" };
+    return { available: false, reason: "无法读取这个项目的 Git 状态。" };
+  }
+
+  const run = (args) => execFileAsync("git", args, options).then(({ stdout }) => stdout);
+  const [branch, status, unstaged, staged] = await Promise.all([
+    run(["branch", "--show-current"]),
+    run(["status", "--short"]),
+    run(["diff", "--no-ext-diff", "--no-color"]),
+    run(["diff", "--cached", "--no-ext-diff", "--no-color"]),
+  ]);
+  const rawDiff = [staged, unstaged].filter(Boolean).join("\n");
+  const maxDiffLength = 1_000_000;
+  return {
+    available: true,
+    branch: branch.trim() || "（无分支名称）",
+    status,
+    diff: rawDiff.slice(0, maxDiffLength),
+    truncated: rawDiff.length > maxDiffLength,
+  };
+}
+
 function threadBusyError(stale = false) {
   const error = new Error(stale
     ? "这个任务仍被 Codex 占用，请在原设备停止任务，或重启电脑端服务后再发送。"
@@ -1637,6 +1828,12 @@ class ThreadRegistry {
     this.records.set(id, next);
     await this.save();
     return next;
+  }
+
+  async remove(id) {
+    const removed = this.records.delete(id);
+    if (removed) await this.save();
+    return removed;
   }
 
   async save() {
