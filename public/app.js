@@ -34,6 +34,8 @@ const state = {
   sessions: [],
   socket: null,
   reconnectTimer: null,
+  sessionTimer: null,
+  socketHeartbeatTimer: null,
   sendPending: false,
   deferredInstallPrompt: null,
   swRegistration: null,
@@ -312,6 +314,10 @@ el.taskAlertOpen.addEventListener("click", () => {
 el.taskAlertClose.addEventListener("click", () => hideTaskAlert());
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") stopTitleBlink();
+  if (document.visibilityState === "visible" && state.session) void refreshSessionAndConnection();
+});
+window.addEventListener("pageshow", () => {
+  if (state.session) void refreshSessionAndConnection();
 });
 
 function serverConfigPlugin() {
@@ -717,10 +723,12 @@ async function loadWorkspace() {
   el.workspaceView.hidden = false;
   renderWorkspace();
   scrollWorkspaceToTop();
+  startSessionHeartbeat();
   connectSocket();
 }
 
 function resetToPairing() {
+  stopSessionHeartbeat();
   state.session = null;
   state.projects = [];
   state.projectRoots = [];
@@ -1432,10 +1440,14 @@ function setApprovalButtons(disabled) {
 }
 
 function connectSocket() {
+  if (!state.session || state.socket?.readyState === WebSocket.OPEN || state.socket?.readyState === WebSocket.CONNECTING) return;
   closeSocket();
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
   state.socket = socket;
+  state.socketHeartbeatTimer = window.setInterval(() => {
+    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "ping" }));
+  }, 25_000);
   socket.addEventListener("message", (event) => {
     try {
       handleSocketEvent(JSON.parse(event.data));
@@ -1443,8 +1455,16 @@ function connectSocket() {
       // Ignore malformed transient events instead of breaking the task view.
     }
   });
-  socket.addEventListener("close", () => {
+  socket.addEventListener("close", (event) => {
+    window.clearInterval(state.socketHeartbeatTimer);
+    if (state.socket === socket) state.socketHeartbeatTimer = null;
     if (state.socket === socket && state.session) {
+      state.socket = null;
+      if (event.code === 4001) {
+        state.session = null;
+        showPairing("这台设备的授权已被电脑端撤销，请重新配对。");
+        return;
+      }
       updateAppServer({ state: "offline", detail: "与本地控制台的连接已断开" });
       state.reconnectTimer = window.setTimeout(connectSocket, 2_000);
     }
@@ -1455,9 +1475,34 @@ function connectSocket() {
 function closeSocket() {
   window.clearTimeout(state.reconnectTimer);
   state.reconnectTimer = null;
+  window.clearInterval(state.socketHeartbeatTimer);
+  state.socketHeartbeatTimer = null;
   if (state.socket) {
     state.socket.close();
     state.socket = null;
+  }
+}
+
+function startSessionHeartbeat() {
+  stopSessionHeartbeat();
+  state.sessionTimer = window.setInterval(() => void refreshSessionAndConnection(), 5 * 60 * 1000);
+}
+
+function stopSessionHeartbeat() {
+  window.clearInterval(state.sessionTimer);
+  state.sessionTimer = null;
+}
+
+async function refreshSessionAndConnection() {
+  if (!state.session) return;
+  try {
+    await request("/api/session");
+    connectSocket();
+  } catch (error) {
+    if (error.status === 401) {
+      state.session = null;
+      showPairing("设备授权已失效，请重新配对。");
+    }
   }
 }
 

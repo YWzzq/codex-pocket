@@ -280,6 +280,10 @@ app.get("/api/admin/sessions", requireLocalAdmin, (req, res) => {
 });
 
 app.post("/api/admin/sessions/revoke-all", requireLocalAdmin, asyncHandler(async (req, res) => {
+  if (!req.session) {
+    res.status(409).json({ error: "当前电脑尚未建立本机会话，请刷新后重试。" });
+    return;
+  }
   const keepDeviceId = req.session?.deviceId ?? null;
   const revoked = await revokeAllDevicesExcept(keepDeviceId);
   res.json({ ok: true, revoked });
@@ -644,7 +648,16 @@ wss.on("connection", (ws, req, session) => {
     approvals: listApprovals(),
     queues: publicAllThreadQueues(),
   });
-  ws.on("message", () => {
+  ws.on("message", (data) => {
+    try {
+      const message = JSON.parse(String(data));
+      if (message?.type === "ping") {
+        sendSocket(ws, { type: "pong", at: Date.now() });
+        return;
+      }
+    } catch {
+      // Ignore malformed heartbeat messages.
+    }
     sendSocket(ws, { type: "error", message: "Use the authenticated HTTP API for commands." });
   });
   ws.on("close", () => sockets.delete(ws));
