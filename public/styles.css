@@ -516,20 +516,26 @@ select {
 }
 
 .project-task-group-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 58px;
+  padding: 15px 13px 13px;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  background: rgba(36, 51, 41, 0.42);
+  font: inherit;
+}
+
+.project-task-group-header:hover {
   background: rgba(36, 51, 41, 0.42);
 }
 
 .project-task-items {
   border-bottom: 1px solid var(--line);
-}
-
-.project-task-group-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 48px;
-  padding: 15px 2px 10px;
 }
 
 .project-task-group-title {
@@ -547,6 +553,24 @@ select {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.project-task-group-chevron {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  transform: translateY(-1px);
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.project-task-group-header[aria-expanded="false"] .project-task-group-chevron {
+  transform: rotate(-90deg) translateX(1px);
+}
+
+.project-task-group-header:hover .project-task-group-chevron {
+  color: var(--green);
 }
 
 .project-task-items .task-row:last-child {

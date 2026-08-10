@@ -10,6 +10,7 @@ const state = {
   threads: [],
   selectedId: null,
   mobileTab: "tasks",
+  expandedProjects: new Set(),
   timelines: new Map(),
   diffs: new Map(),
   queues: new Map(),
@@ -836,8 +837,17 @@ function renderTaskList() {
     section.className = "project-task-group";
     section.setAttribute("aria-labelledby", `project-task-group-${group.projectId}`);
 
-    const header = document.createElement("header");
+    const expanded = state.expandedProjects.has(group.projectId) || Boolean(search);
+    const header = document.createElement("button");
+    header.type = "button";
     header.className = "project-task-group-header";
+    header.setAttribute("aria-expanded", String(expanded));
+    header.setAttribute("aria-controls", `project-task-items-${group.projectId}`);
+    header.addEventListener("click", () => {
+      if (state.expandedProjects.has(group.projectId)) state.expandedProjects.delete(group.projectId);
+      else state.expandedProjects.add(group.projectId);
+      renderTaskList();
+    });
     const title = document.createElement("strong");
     title.id = `project-task-group-${group.projectId}`;
     title.className = "project-task-group-title";
@@ -846,10 +856,16 @@ function renderTaskList() {
     const meta = document.createElement("span");
     meta.className = "project-task-group-meta";
     meta.textContent = `${group.threads.length} 个任务${activeCount ? ` · ${activeCount} 个进行中` : ""}`;
-    header.append(title, meta);
+    const chevron = document.createElement("span");
+    chevron.className = "project-task-group-chevron";
+    chevron.setAttribute("aria-hidden", "true");
+    chevron.textContent = "⌄";
+    header.append(title, meta, chevron);
 
     const items = document.createElement("div");
     items.className = "project-task-items";
+    items.id = `project-task-items-${group.projectId}`;
+    items.hidden = !expanded;
     for (const thread of group.threads) {
       items.append(createTaskRow(thread));
     }
