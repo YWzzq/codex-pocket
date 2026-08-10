@@ -245,6 +245,15 @@
       </div>
     </section>
 
+    <aside id="taskAlert" class="task-alert" hidden role="status" aria-live="assertive">
+      <div class="task-alert-copy">
+        <strong id="taskAlertTitle">任务状态更新</strong>
+        <span id="taskAlertMessage"></span>
+      </div>
+      <button id="taskAlertOpen" class="button primary compact" type="button">查看任务</button>
+      <button id="taskAlertClose" class="icon-button" type="button" aria-label="关闭提醒">×</button>
+    </aside>
+
     <div id="toast" class="toast" role="status" hidden></div>
     <script type="module" src="/app.js"></script>
   </body>

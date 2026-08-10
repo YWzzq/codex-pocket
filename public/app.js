@@ -22,6 +22,10 @@ const state = {
   sendPending: false,
   deferredInstallPrompt: null,
   swRegistration: null,
+  alertThreadId: null,
+  alertTimer: null,
+  titleTimer: null,
+  defaultDocumentTitle: document.title,
   forkPending: new Set(),
   notificationPermission: typeof Notification === "undefined" ? "unsupported" : Notification.permission,
 };
@@ -107,6 +111,11 @@ const el = {
   approvalAllow: document.querySelector("#approvalAllow"),
   approvalDeny: document.querySelector("#approvalDeny"),
   approvalStop: document.querySelector("#approvalStop"),
+  taskAlert: document.querySelector("#taskAlert"),
+  taskAlertTitle: document.querySelector("#taskAlertTitle"),
+  taskAlertMessage: document.querySelector("#taskAlertMessage"),
+  taskAlertOpen: document.querySelector("#taskAlertOpen"),
+  taskAlertClose: document.querySelector("#taskAlertClose"),
   toast: document.querySelector("#toast"),
 };
 
@@ -264,6 +273,15 @@ el.timeline.addEventListener("scroll", () => handleTimelineScroll());
 el.approvalAllow.addEventListener("click", () => resolveApproval("allow"));
 el.approvalDeny.addEventListener("click", () => resolveApproval("deny"));
 el.approvalStop.addEventListener("click", () => resolveApproval("stop"));
+el.taskAlertOpen.addEventListener("click", () => {
+  const threadId = state.alertThreadId;
+  hideTaskAlert();
+  if (threadId) void selectThread(threadId);
+});
+el.taskAlertClose.addEventListener("click", () => hideTaskAlert());
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") stopTitleBlink();
+});
 
 async function boot() {
   const url = new URL(window.location.href);
@@ -1477,7 +1495,7 @@ async function enableNotifications() {
 }
 
 function notifyTaskUpdate(thread, previous, forcedStatus = "") {
-  if (!thread || state.notificationPermission !== "granted" || document.visibilityState === "visible") return;
+  if (!thread) return;
   const status = forcedStatus || thread.status;
   if (!forcedStatus && (!previous || previous.status === status)) return;
   const message = status === "approval"
@@ -1488,7 +1506,66 @@ function notifyTaskUpdate(thread, previous, forcedStatus = "") {
         ? "任务执行失败，可点击重试"
         : "任务状态已更新";
   if (!["approval", "completed", "failed"].includes(status)) return;
-  void showTaskNotification(thread, status, message);
+  showTaskAlert(thread, status, message);
+  if (state.notificationPermission === "granted" && document.visibilityState !== "visible") {
+    void showTaskNotification(thread, status, message);
+  }
+}
+
+function showTaskAlert(thread, status, message) {
+  state.alertThreadId = thread.id;
+  el.taskAlertTitle.textContent = status === "approval" ? "需要你的批准" : status === "completed" ? "任务已完成" : "任务执行失败";
+  el.taskAlertMessage.textContent = `${thread.title || "Codex 任务"} · ${message}`;
+  el.taskAlert.hidden = false;
+  window.clearTimeout(state.alertTimer);
+  state.alertTimer = window.setTimeout(() => hideTaskAlert(), 12_000);
+  if (navigator.vibrate) navigator.vibrate([100, 70, 100]);
+  void playAlertTone();
+  if (document.visibilityState !== "visible") startTitleBlink();
+}
+
+function hideTaskAlert() {
+  el.taskAlert.hidden = true;
+  state.alertThreadId = null;
+  window.clearTimeout(state.alertTimer);
+  state.alertTimer = null;
+  stopTitleBlink();
+}
+
+function startTitleBlink() {
+  if (state.titleTimer) return;
+  let highlighted = false;
+  state.titleTimer = window.setInterval(() => {
+    highlighted = !highlighted;
+    document.title = highlighted ? "● 有新的 Codex 状态" : state.defaultDocumentTitle;
+  }, 900);
+}
+
+function stopTitleBlink() {
+  window.clearInterval(state.titleTimer);
+  state.titleTimer = null;
+  document.title = state.defaultDocumentTitle;
+}
+
+async function playAlertTone() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  try {
+    const context = new AudioContext();
+    if (context.state === "suspended") await context.resume();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.22);
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.24);
+    window.setTimeout(() => void context.close(), 500);
+  } catch {
+    // Browsers may require a prior user gesture before playing a tone.
+  }
 }
 
 async function showTaskNotification(thread, status, message) {

@@ -1212,6 +1212,55 @@ textarea {
   line-height: 1.45;
 }
 
+.task-alert {
+  position: fixed;
+  z-index: 25;
+  right: 14px;
+  bottom: max(78px, calc(20px + env(safe-area-inset-bottom)));
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(560px, calc(100% - 28px));
+  margin: auto;
+  padding: 10px;
+  border: 1px solid var(--green);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.38);
+}
+
+.task-alert-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 3px;
+}
+
+.task-alert-copy strong,
+.task-alert-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-alert-copy strong {
+  color: var(--green);
+  font-size: 13px;
+}
+
+.task-alert-copy span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.task-alert .icon-button {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
+  font-size: 18px;
+}
+
 @media (min-width: 761px) {
   .workspace,
   .pair-view {
