@@ -495,6 +495,10 @@ async function startTurn(thread, prompt, session) {
     return { id: turnId };
   } catch (error) {
     if (/already has an active writer/i.test(error?.message ?? "")) throw threadBusyError(true);
+    if (isMissingProcessError(error)) {
+      await recoverThreadExecution(thread, "Codex 已找不到这个线程");
+      throw threadRetryError("这个线程已不存在，请新建任务继续。");
+    }
     throw error;
   } finally {
     pendingTurnStarts.delete(thread.id);
@@ -533,7 +537,7 @@ function clearThreadExecution(threadId) {
 
 function isMissingProcessError(error) {
   const message = String(error?.message ?? "");
-  return /(process|进程).*(not found|does not exist|不存在)|(not found|does not exist|不存在).*(process|进程)/i.test(message);
+  return /(process|进程|thread|线程).*(not found|does not exist|不存在)|(not found|does not exist|不存在).*(process|进程|thread|线程)/i.test(message);
 }
 
 async function getModelCatalog() {

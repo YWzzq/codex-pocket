@@ -822,6 +822,10 @@ async function sendPrompt(prompt) {
     el.promptInput.value = "";
     renderWorkspace();
   } catch (error) {
+    if (error.status === 409 && /线程已不存在/.test(error.message)) {
+      state.selectedId = null;
+      renderWorkspace();
+    }
     showToast(error.message);
   } finally {
     state.sendPending = false;
