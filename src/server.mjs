@@ -267,16 +267,7 @@ app.post("/api/threads/:threadId/messages", requireSession, asyncHandler(async (
   const thread = await requireOwnedThreadFresh(req.params.threadId);
   const prompt = validatePrompt(req.body?.prompt);
   await bridge.start();
-  if (!loadedThreads.has(thread.id)) {
-    await bridge.request("thread/resume", {
-      threadId: thread.id,
-      cwd: thread.cwd,
-      approvalPolicy: "on-request",
-      sandbox: "workspace-write",
-      ...threadStartSettings(thread),
-    });
-    loadedThreads.add(thread.id);
-  }
+  await ensureThreadLoaded(thread);
   const turn = await startTurn(thread, prompt, req.session);
   res.status(201).json({ thread: publicThread(registry.get(thread.id)), turnId: turn.id });
 }));
@@ -291,16 +282,7 @@ app.post("/api/threads/:threadId/retry", requireSession, asyncHandler(async (req
   const history = extractThreadHistory(result?.thread);
   const prompt = [...history.timeline].reverse().find((entry) => entry.type === "message" && entry.role === "user")?.text;
   if (!prompt) throw threadRetryError("找不到上一次任务指令，无法自动重试。");
-  if (!loadedThreads.has(thread.id)) {
-    await bridge.request("thread/resume", {
-      threadId: thread.id,
-      cwd: thread.cwd,
-      approvalPolicy: "on-request",
-      sandbox: "workspace-write",
-      ...threadStartSettings(thread),
-    });
-    loadedThreads.add(thread.id);
-  }
+  await ensureThreadLoaded(thread);
   const turn = await startTurn(thread, prompt, req.session);
   res.status(201).json({ thread: publicThread(registry.get(thread.id)), turnId: turn.id, prompt });
 }));
@@ -502,6 +484,27 @@ async function startTurn(thread, prompt, session) {
     throw error;
   } finally {
     pendingTurnStarts.delete(thread.id);
+  }
+}
+
+async function ensureThreadLoaded(thread) {
+  if (loadedThreads.has(thread.id)) return;
+  try {
+    await bridge.request("thread/resume", {
+      threadId: thread.id,
+      cwd: thread.cwd,
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
+      ...threadStartSettings(thread),
+    });
+    loadedThreads.add(thread.id);
+  } catch (error) {
+    if (/already has an active writer/i.test(error?.message ?? "")) throw threadBusyError(true);
+    if (isMissingProcessError(error)) {
+      await recoverThreadExecution(thread, "Codex 已找不到这个线程");
+      throw threadRetryError("这个线程已不存在，请新建任务继续。");
+    }
+    throw error;
   }
 }
 
