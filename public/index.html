@@ -90,6 +90,18 @@
           <button id="newTaskButton" class="button primary compact" type="button">新任务</button>
         </section>
 
+        <div id="taskFilters" class="task-filters" aria-label="任务筛选">
+          <input id="taskSearch" type="search" placeholder="搜索任务名称、项目或目录" autocomplete="off" />
+          <select id="taskStatusFilter" aria-label="按状态筛选">
+            <option value="">全部状态</option>
+            <option value="running">正在执行</option>
+            <option value="approval">等待批准</option>
+            <option value="completed">已完成</option>
+            <option value="interrupted">已停止</option>
+            <option value="failed">执行失败</option>
+          </select>
+        </div>
+
         <section id="taskList" class="task-list" aria-live="polite"></section>
 
         <section id="detailView" class="detail-view" hidden>
@@ -117,7 +129,15 @@
           </div>
           <section id="diffPanel" class="diff-panel" hidden>
             <div id="diffStatus" class="diff-status muted"></div>
+            <div id="diffFiles" class="diff-files"></div>
             <pre id="diffContent" class="diff-content"></pre>
+          </section>
+          <section id="queuePanel" class="queue-panel" hidden>
+            <div class="queue-header">
+              <strong>排队中的消息</strong>
+              <button id="clearQueueButton" class="text-button danger" type="button">清空</button>
+            </div>
+            <div id="queueList" class="queue-list"></div>
           </section>
           <div class="timeline-shell">
             <div id="timeline" class="timeline" aria-live="polite"></div>

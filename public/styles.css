@@ -380,6 +380,20 @@ select {
   line-height: 1.15;
 }
 
+.task-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.task-filters input,
+.task-filters select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
 .task-list {
   border-top: 1px solid var(--line);
 }
@@ -592,6 +606,35 @@ select {
   font-size: 12px;
 }
 
+.diff-files {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 9px 11px 0;
+  scrollbar-width: thin;
+}
+
+.diff-file {
+  flex: 0 0 auto;
+  max-width: 280px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  background: var(--surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-file:hover,
+.diff-file.selected {
+  border-color: var(--green);
+  color: var(--green);
+}
+
 .diff-content {
   max-height: 360px;
   margin: 0;
@@ -602,6 +645,62 @@ select {
   font-size: 11px;
   line-height: 1.5;
   white-space: pre;
+}
+
+.queue-panel {
+  margin: 0 0 10px;
+  border: 1px solid rgba(214, 170, 79, 0.35);
+  border-radius: 6px;
+  background: rgba(214, 170, 79, 0.06);
+}
+
+.queue-header,
+.queue-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.queue-header {
+  padding: 9px 11px;
+  border-bottom: 1px solid rgba(214, 170, 79, 0.25);
+  color: var(--amber);
+  font-size: 12px;
+}
+
+.queue-list {
+  display: grid;
+}
+
+.queue-row {
+  align-items: start;
+  padding: 10px 11px;
+  border-bottom: 1px solid rgba(214, 170, 79, 0.18);
+}
+
+.queue-row:last-child {
+  border-bottom: 0;
+}
+
+.queue-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.queue-prompt {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-meta {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .timeline-shell {

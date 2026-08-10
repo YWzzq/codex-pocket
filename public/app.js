@@ -11,6 +11,9 @@ const state = {
   selectedId: null,
   timelines: new Map(),
   diffs: new Map(),
+  queues: new Map(),
+  taskSearch: "",
+  taskStatusFilter: "",
   timelineAutoFollow: new Map(),
   approvals: [],
   sessions: [],
@@ -62,6 +65,9 @@ const el = {
   serviceTierSelect: document.querySelector("#serviceTierSelect"),
   taskHeading: document.querySelector("#taskHeading"),
   newTaskButton: document.querySelector("#newTaskButton"),
+  taskFilters: document.querySelector("#taskFilters"),
+  taskSearch: document.querySelector("#taskSearch"),
+  taskStatusFilter: document.querySelector("#taskStatusFilter"),
   taskList: document.querySelector("#taskList"),
   detailView: document.querySelector("#detailView"),
   backButton: document.querySelector("#backButton"),
@@ -79,7 +85,11 @@ const el = {
   diffSummary: document.querySelector("#diffSummary"),
   diffPanel: document.querySelector("#diffPanel"),
   diffStatus: document.querySelector("#diffStatus"),
+  diffFiles: document.querySelector("#diffFiles"),
   diffContent: document.querySelector("#diffContent"),
+  queuePanel: document.querySelector("#queuePanel"),
+  queueList: document.querySelector("#queueList"),
+  clearQueueButton: document.querySelector("#clearQueueButton"),
   timeline: document.querySelector("#timeline"),
   composer: document.querySelector("#composer"),
   promptInput: document.querySelector("#promptInput"),
@@ -174,6 +184,15 @@ el.newTaskButton.addEventListener("click", () => {
   el.promptInput.focus();
 });
 
+el.taskSearch.addEventListener("input", () => {
+  state.taskSearch = el.taskSearch.value;
+  renderTaskList();
+});
+el.taskStatusFilter.addEventListener("change", () => {
+  state.taskStatusFilter = el.taskStatusFilter.value;
+  renderTaskList();
+});
+
 el.backButton.addEventListener("click", () => {
   state.selectedId = null;
   renderWorkspace();
@@ -218,6 +237,7 @@ el.releaseButton.addEventListener("click", () => void releaseThread());
 el.renameButton.addEventListener("click", () => void renameThread());
 el.archiveButton.addEventListener("click", () => void archiveThread());
 el.diffButton.addEventListener("click", () => void loadGitDiff());
+el.clearQueueButton.addEventListener("click", () => void clearQueue());
 el.jumpLatestButton.addEventListener("click", () => jumpToLatest());
 el.timeline.addEventListener("scroll", () => handleTimelineScroll());
 
@@ -553,6 +573,7 @@ function resetToPairing() {
   state.selectedId = null;
   state.timelines.clear();
   state.diffs.clear();
+  state.queues.clear();
   state.timelineAutoFollow.clear();
   state.approvals = [];
   showPairing("此浏览器已断开连接。");
@@ -656,20 +677,29 @@ function renderProjects() {
 function renderTaskList() {
   const hasSelection = Boolean(selectedThread());
   el.taskList.hidden = hasSelection;
+  el.taskFilters.hidden = hasSelection;
   el.taskHeading.textContent = hasSelection ? "任务详情" : "项目任务";
   if (hasSelection) return;
 
   el.taskList.replaceChildren();
-  if (state.threads.length === 0) {
+  const search = state.taskSearch.trim().toLocaleLowerCase();
+  const filteredThreads = state.threads.filter((thread) => {
+    if (state.taskStatusFilter && thread.status !== state.taskStatusFilter) return false;
+    if (!search) return true;
+    return [thread.title, thread.cwd, projectName(thread.projectId)]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase().includes(search));
+  });
+  if (filteredThreads.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = "还没有任务。选择项目后发出第一条指令。";
+    empty.textContent = state.threads.length === 0 ? "还没有任务。选择项目后发出第一条指令。" : "没有符合条件的任务。";
     el.taskList.append(empty);
     return;
   }
 
   const groups = new Map();
-  for (const thread of state.threads) {
+  for (const thread of filteredThreads) {
     const projectId = thread.projectId ?? "__unknown__";
     const group = groups.get(projectId) ?? { projectId, threads: [] };
     group.threads.push(thread);
@@ -742,6 +772,7 @@ function renderDetail() {
   if (!thread) {
     el.jumpLatestButton.hidden = true;
     el.diffPanel.hidden = true;
+    el.queuePanel.hidden = true;
     return;
   }
   el.detailTitle.textContent = thread.title;
@@ -757,6 +788,7 @@ function renderDetail() {
   el.detailWriter.hidden = !thread.writer;
   el.detailWriter.textContent = thread.writer ? `当前占用设备：${thread.writer.device} · ${relativeTime(thread.writer.startedAt)}开始` : "";
   renderGitDiff(thread.id);
+  renderQueue(thread.id);
   renderTimeline(thread.id);
 }
 
@@ -838,42 +870,109 @@ function renderGitDiff(threadId) {
   el.diffSummary.textContent = diff?.data?.available ? `分支：${diff.data.branch}` : "";
   if (!diff) {
     el.diffStatus.textContent = "";
+    el.diffFiles.replaceChildren();
     el.diffContent.textContent = "";
     return;
   }
   if (diff.loading) {
     el.diffStatus.textContent = "正在读取项目状态…";
+    el.diffFiles.replaceChildren();
     el.diffContent.textContent = "";
     return;
   }
   if (diff.error) {
     el.diffStatus.textContent = diff.error;
+    el.diffFiles.replaceChildren();
     el.diffContent.textContent = "";
     return;
   }
   const data = diff.data;
   if (!data?.available) {
     el.diffStatus.textContent = data?.reason ?? "Git Diff 暂不可用";
+    el.diffFiles.replaceChildren();
     el.diffContent.textContent = "";
     return;
   }
+  el.diffFiles.replaceChildren();
+  for (const file of data.files ?? []) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `diff-file ${diff.selectedFile === file.path ? "selected" : ""}`;
+    button.textContent = `${file.status}  ${file.path}  +${file.additions} -${file.deletions}`;
+    button.title = "查看这个文件的 Diff";
+    button.addEventListener("click", () => void loadGitDiff(file.path));
+    el.diffFiles.append(button);
+  }
   const changedFiles = data.status?.trim() ? data.status.trim().split("\n").length : 0;
-  el.diffStatus.textContent = `${data.branch} · ${changedFiles ? `${changedFiles} 个文件有变化` : "工作区干净"}${data.truncated ? " · Diff 内容已截断" : ""}`;
+  const currentFile = data.file ? ` · ${data.file}` : "";
+  el.diffStatus.textContent = `${data.branch}${currentFile} · ${changedFiles ? `${changedFiles} 个文件有变化` : "工作区干净"}${data.truncated ? " · Diff 内容已截断" : ""}`;
   el.diffContent.textContent = data.diff || "没有未提交的代码差异。";
 }
 
-async function loadGitDiff() {
+async function loadGitDiff(filePath = "") {
   const thread = selectedThread();
   if (!thread) return;
-  state.diffs.set(thread.id, { loading: true });
+  state.diffs.set(thread.id, { loading: true, selectedFile: filePath });
   renderGitDiff(thread.id);
   try {
-    const data = await request(`/api/threads/${encodeURIComponent(thread.id)}/diff`);
-    state.diffs.set(thread.id, { data });
+    const query = filePath ? `?file=${encodeURIComponent(filePath)}` : "";
+    const data = await request(`/api/threads/${encodeURIComponent(thread.id)}/diff${query}`);
+    state.diffs.set(thread.id, { data, selectedFile: filePath });
   } catch (error) {
-    state.diffs.set(thread.id, { error: error.message });
+    state.diffs.set(thread.id, { error: error.message, selectedFile: filePath });
   }
   if (state.selectedId === thread.id) renderGitDiff(thread.id);
+}
+
+function renderQueue(threadId) {
+  const queue = state.queues.get(threadId) ?? [];
+  el.queuePanel.hidden = queue.length === 0;
+  el.queueList.replaceChildren();
+  if (queue.length === 0) return;
+  for (const entry of queue) {
+    const row = document.createElement("div");
+    row.className = "queue-row";
+    const copy = document.createElement("div");
+    copy.className = "queue-copy";
+    const prompt = document.createElement("span");
+    prompt.className = "queue-prompt";
+    prompt.textContent = `${entry.position}. ${entry.prompt}`;
+    const meta = document.createElement("span");
+    meta.className = "queue-meta";
+    meta.textContent = `来自 ${entry.device ?? "其他设备"} · ${relativeTime(entry.createdAt)}`;
+    copy.append(prompt, meta);
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "text-button danger";
+    cancel.textContent = "取消";
+    cancel.addEventListener("click", () => void cancelQueuedMessage(threadId, entry.id));
+    row.append(copy, cancel);
+    el.queueList.append(row);
+  }
+}
+
+async function cancelQueuedMessage(threadId, queueId) {
+  try {
+    const result = await request(`/api/threads/${encodeURIComponent(threadId)}/queue/${encodeURIComponent(queueId)}`, { method: "DELETE" });
+    state.queues.set(threadId, result.queue ?? []);
+    if (state.selectedId === threadId) renderQueue(threadId);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function clearQueue() {
+  const thread = selectedThread();
+  if (!thread || !(state.queues.get(thread.id)?.length)) return;
+  if (!window.confirm("确定清空这个任务的排队消息吗？")) return;
+  try {
+    await request(`/api/threads/${encodeURIComponent(thread.id)}/queue`, { method: "DELETE" });
+    state.queues.delete(thread.id);
+    renderQueue(thread.id);
+    showToast("排队消息已清空");
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 function isTimelineAtBottom() {
@@ -955,6 +1054,7 @@ async function archiveThread() {
     state.threads = state.threads.filter((entry) => entry.id !== thread.id);
     state.timelines.delete(thread.id);
     state.diffs.delete(thread.id);
+    state.queues.delete(thread.id);
     state.timelineAutoFollow.delete(thread.id);
     state.selectedId = null;
     renderWorkspace();
@@ -970,8 +1070,9 @@ async function archiveThread() {
 function renderComposer() {
   const thread = selectedThread();
   const threadBusy = Boolean(thread && isActiveTask(thread.status));
+  const queueCount = thread ? (state.queues.get(thread.id)?.length ?? 0) : 0;
   el.composerContext.textContent = threadBusy
-    ? `${projectName(thread.projectId)} · 任务执行中，完成后可继续`
+    ? `${projectName(thread.projectId)} · 任务执行中${queueCount ? ` · ${queueCount} 条排队` : "，完成后可继续"}`
     : thread
       ? `${projectName(thread.projectId)} · 继续当前任务`
       : `${selectedProject()?.name ?? "未选择项目"} · 开始新任务`;
@@ -1027,6 +1128,7 @@ async function sendPrompt(prompt) {
       result = await request(`/api/threads/${encodeURIComponent(selected.id)}/messages`, { method: "POST", body: { prompt } });
       appendTimeline(selected.id, { type: "message", role: "user", text: prompt, at: Date.now() });
       upsertThread(result.thread);
+      if (result.queued) state.queues.set(selected.id, result.queue ?? []);
     } else {
       result = await request("/api/threads", { method: "POST", body: { projectId: project.id, prompt, settings: selectedSettings() } });
       upsertThread(result.thread);
@@ -1151,6 +1253,7 @@ function handleSocketEvent(event) {
   if (event.type === "snapshot") {
     state.threads = event.threads ?? state.threads;
     state.approvals = event.approvals ?? state.approvals;
+    state.queues = new Map(Object.entries(event.queues ?? {}));
     updateAppServer(event.appServer);
     renderWorkspace();
     return;
@@ -1171,9 +1274,15 @@ function handleSocketEvent(event) {
     state.threads = state.threads.filter((thread) => thread.id !== event.threadId);
     state.timelines.delete(event.threadId);
     state.diffs.delete(event.threadId);
+    state.queues.delete(event.threadId);
     state.timelineAutoFollow.delete(event.threadId);
     if (state.selectedId === event.threadId) state.selectedId = null;
     renderWorkspace();
+    return;
+  }
+  if (event.type === "thread_queue") {
+    state.queues.set(event.threadId, event.queue ?? []);
+    if (state.selectedId === event.threadId) renderQueue(event.threadId);
     return;
   }
   if (event.type === "approval_requested") {

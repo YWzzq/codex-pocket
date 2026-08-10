@@ -229,7 +229,8 @@ app.get("/api/threads/:threadId", requireSession, asyncHandler(async (req, res) 
 
 app.get("/api/threads/:threadId/diff", requireSession, asyncHandler(async (req, res) => {
   const thread = await requireOwnedThreadFresh(req.params.threadId);
-  const result = await readGitDiff(thread.cwd);
+  const filePath = typeof req.query.file === "string" ? req.query.file : "";
+  const result = await readGitDiff(thread.cwd, filePath);
   res.json(result);
 }));
 
@@ -514,6 +515,7 @@ wss.on("connection", (ws, req, session) => {
     appServer: bridge.status,
     threads: registry.list().map(publicThread),
     approvals: listApprovals(),
+    queues: publicAllThreadQueues(),
   });
   ws.on("message", () => {
     sendSocket(ws, { type: "error", message: "Use the authenticated HTTP API for commands." });
@@ -684,6 +686,10 @@ function publicThreadQueue(threadId) {
     createdAt: entry.createdAt,
     position: index + 1,
   }));
+}
+
+function publicAllThreadQueues() {
+  return Object.fromEntries([...threadQueues].map(([threadId]) => [threadId, publicThreadQueue(threadId)]));
 }
 
 function broadcastThreadQueue(threadId) {
@@ -1391,8 +1397,9 @@ function isActiveTask(status) {
   return ["starting", "running", "approval", "stopping"].includes(status);
 }
 
-async function readGitDiff(cwd) {
+async function readGitDiff(cwd, selectedFile = "") {
   const options = { cwd, timeout: 10_000, maxBuffer: 2 * 1024 * 1024, windowsHide: true };
+  const cleanFile = selectedFile.trim();
   try {
     await execFileAsync("git", ["rev-parse", "--show-toplevel"], options);
   } catch (error) {
@@ -1403,21 +1410,67 @@ async function readGitDiff(cwd) {
   }
 
   const run = (args) => execFileAsync("git", args, options).then(({ stdout }) => stdout);
-  const [branch, status, unstaged, staged] = await Promise.all([
+  const [branch, status, unstaged, staged, unstagedNumstat, stagedNumstat] = await Promise.all([
     run(["branch", "--show-current"]),
-    run(["status", "--short"]),
+    run(["status", "--short", "--untracked-files=all"]),
     run(["diff", "--no-ext-diff", "--no-color"]),
     run(["diff", "--cached", "--no-ext-diff", "--no-color"]),
+    run(["diff", "--numstat", "--no-ext-diff"]),
+    run(["diff", "--cached", "--numstat", "--no-ext-diff"]),
   ]);
+  const files = parseGitFiles(status, unstagedNumstat, stagedNumstat);
+  if (cleanFile) {
+    if (!isSafeGitPath(cleanFile)) return { available: false, reason: "无效的文件路径。" };
+    const [selectedUnstaged, selectedStaged] = await Promise.all([
+      run(["diff", "--no-ext-diff", "--no-color", "--", cleanFile]),
+      run(["diff", "--cached", "--no-ext-diff", "--no-color", "--", cleanFile]),
+    ]);
+    const selectedDiff = [selectedStaged, selectedUnstaged].filter(Boolean).join("\n");
+    return {
+      available: true,
+      branch: branch.trim() || "（无分支名称）",
+      status,
+      files,
+      file: cleanFile,
+      diff: selectedDiff.slice(0, 1_000_000),
+      truncated: selectedDiff.length > 1_000_000,
+    };
+  }
   const rawDiff = [staged, unstaged].filter(Boolean).join("\n");
   const maxDiffLength = 1_000_000;
   return {
     available: true,
     branch: branch.trim() || "（无分支名称）",
     status,
+    files,
     diff: rawDiff.slice(0, maxDiffLength),
     truncated: rawDiff.length > maxDiffLength,
   };
+}
+
+function parseGitFiles(status, unstagedNumstat, stagedNumstat) {
+  const stats = new Map();
+  for (const line of `${unstagedNumstat}\n${stagedNumstat}`.split("\n")) {
+    if (!line.trim()) continue;
+    const [added, removed, ...pathParts] = line.split("\t");
+    const file = pathParts.join("\t");
+    if (!file) continue;
+    const current = stats.get(file) ?? { additions: 0, deletions: 0 };
+    current.additions += Number.isFinite(Number(added)) ? Number(added) : 0;
+    current.deletions += Number.isFinite(Number(removed)) ? Number(removed) : 0;
+    stats.set(file, current);
+  }
+  return status.split("\n").filter(Boolean).map((line) => {
+    const code = line.slice(0, 2).trim() || "?";
+    const rawPath = line.slice(3).trim();
+    const file = rawPath.includes(" -> ") ? rawPath.split(" -> ").at(-1) : rawPath;
+    const stat = stats.get(rawPath) ?? stats.get(file) ?? {};
+    return { path: file, status: code, additions: stat.additions ?? 0, deletions: stat.deletions ?? 0 };
+  });
+}
+
+function isSafeGitPath(filePath) {
+  return filePath.length > 0 && filePath.length <= 500 && !path.isAbsolute(filePath) && !filePath.split(/[\\/]+/).includes("..");
 }
 
 function threadBusyError(stale = false) {
