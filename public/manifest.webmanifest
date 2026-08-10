@@ -1,9 +1,13 @@
 {
   "name": "Codex Pocket",
   "short_name": "Codex Pocket",
+  "id": "/",
   "description": "从手机安全查看和管理电脑端 Codex 任务。",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "scope": "/",
+  "orientation": "portrait-primary",
   "background_color": "#121513",
   "theme_color": "#121513",
   "lang": "zh-CN",

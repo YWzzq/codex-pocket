@@ -20,6 +20,8 @@ const state = {
   socket: null,
   reconnectTimer: null,
   sendPending: false,
+  deferredInstallPrompt: null,
+  swRegistration: null,
   forkPending: new Set(),
   notificationPermission: typeof Notification === "undefined" ? "unsupported" : Notification.permission,
 };
@@ -42,6 +44,7 @@ const el = {
   pairButton: document.querySelector("#pairButton"),
   projectButton: document.querySelector("#projectButton"),
   sessionButton: document.querySelector("#sessionButton"),
+  installButton: document.querySelector("#installButton"),
   notificationButton: document.querySelector("#notificationButton"),
   projectDialog: document.querySelector("#projectDialog"),
   projectForm: document.querySelector("#projectForm"),
@@ -109,6 +112,22 @@ const el = {
 
 void boot();
 void registerServiceWorker();
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  state.deferredInstallPrompt = event;
+  renderInstallButton();
+});
+window.addEventListener("appinstalled", () => {
+  state.deferredInstallPrompt = null;
+  renderInstallButton();
+  showToast("Codex Pocket 已安装到主屏幕");
+});
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type === "open_thread" && event.data.threadId) void selectThread(event.data.threadId);
+  });
+}
 
 el.pairButton.hidden = !isLocalBrowser();
 el.projectButton.hidden = !isLocalBrowser();
@@ -232,6 +251,7 @@ el.deviceButton.addEventListener("click", () => {
 });
 
 el.notificationButton.addEventListener("click", () => void enableNotifications());
+el.installButton.addEventListener("click", () => void installPwa());
 el.retryButton.addEventListener("click", () => void retryThread());
 el.releaseButton.addEventListener("click", () => void releaseThread());
 el.renameButton.addEventListener("click", () => void renameThread());
@@ -587,6 +607,7 @@ function renderWorkspace() {
   renderDetail();
   renderComposer();
   renderApproval();
+  renderInstallButton();
   renderNotificationButton();
 }
 
@@ -1416,6 +1437,34 @@ function renderNotificationButton() {
   el.notificationButton.title = state.notificationPermission === "denied" ? "请在浏览器设置中允许通知" : "任务完成或需要批准时通知";
 }
 
+function renderInstallButton() {
+  const standalone = window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  const canInstall = Boolean(state.deferredInstallPrompt) || (isIosDevice() && !standalone);
+  el.installButton.hidden = standalone || !canInstall;
+  el.installButton.textContent = state.deferredInstallPrompt ? "安装应用" : "添加到主屏幕";
+  el.installButton.title = state.deferredInstallPrompt ? "将 Codex Pocket 安装为应用" : "在浏览器分享菜单中添加到主屏幕";
+}
+
+function isIosDevice() {
+  return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+}
+
+async function installPwa() {
+  if (state.deferredInstallPrompt) {
+    const prompt = state.deferredInstallPrompt;
+    state.deferredInstallPrompt = null;
+    renderInstallButton();
+    await prompt.prompt();
+    await prompt.userChoice.catch(() => undefined);
+    return;
+  }
+  if (isIosDevice()) {
+    showToast("请点击浏览器的分享按钮，再选择“添加到主屏幕”");
+    return;
+  }
+  showToast("请打开浏览器菜单，选择“安装应用”或“添加到主屏幕”");
+}
+
 async function enableNotifications() {
   if (state.notificationPermission === "unsupported") return;
   try {
@@ -1439,26 +1488,35 @@ function notifyTaskUpdate(thread, previous, forcedStatus = "") {
         ? "任务执行失败，可点击重试"
         : "任务状态已更新";
   if (!["approval", "completed", "failed"].includes(status)) return;
-  let notification;
-  try {
-    notification = new Notification(thread.title || "Codex Pocket", {
-      body: message,
-      tag: `codex-pocket-${thread.id}-${status}`,
-    });
-  } catch {
-    return;
-  }
-  notification.onclick = () => {
-    window.focus();
-    void selectThread(thread.id);
-    notification.close();
+  void showTaskNotification(thread, status, message);
+}
+
+async function showTaskNotification(thread, status, message) {
+  const title = thread.title || "Codex Pocket";
+  const options = {
+    body: message,
+    tag: `codex-pocket-${thread.id}-${status}`,
+    icon: "/icon.svg",
+    badge: "/icon.svg",
+    data: { threadId: thread.id },
   };
+  try {
+    const registration = state.swRegistration ?? ("serviceWorker" in navigator ? await navigator.serviceWorker.ready : null);
+    if (registration?.showNotification) {
+      await registration.showNotification(title, options);
+      return;
+    }
+    if (typeof Notification !== "undefined") new Notification(title, options);
+  } catch {
+    // Notifications are optional; the task state remains available in the app.
+  }
 }
 
 async function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   try {
-    await navigator.serviceWorker.register("/sw.js");
+    state.swRegistration = await navigator.serviceWorker.register("/sw.js");
+    void state.swRegistration.update();
   } catch {
     // PWA install is optional; the task console still works without it.
   }
