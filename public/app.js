@@ -15,6 +15,7 @@ const state = {
   socket: null,
   reconnectTimer: null,
   sendPending: false,
+  forkPending: new Set(),
   notificationPermission: typeof Notification === "undefined" ? "unsupported" : Notification.permission,
 };
 
@@ -739,6 +740,10 @@ function renderTimeline(threadId) {
     return;
   }
   for (const entry of timeline) {
+    const reply = entry.type === "message" && entry.role === "assistant" && entry.turnId
+      ? document.createElement("article")
+      : null;
+    if (reply) reply.className = "timeline-reply";
     const node = document.createElement(entry.type === "output" ? "pre" : "div");
     if (entry.type === "message") {
       node.className = `timeline-message ${entry.role}`;
@@ -750,9 +755,45 @@ function renderTimeline(threadId) {
       node.className = "timeline-activity";
       node.textContent = entry.label ?? entry.message ?? "任务状态已更新";
     }
-    el.timeline.append(node);
+    if (!reply) {
+      el.timeline.append(node);
+      continue;
+    }
+    reply.append(node);
+    const branchButton = document.createElement("button");
+    branchButton.type = "button";
+    branchButton.className = "branch-button";
+    const branchKey = `${threadId}:${entry.turnId}`;
+    branchButton.disabled = state.forkPending.has(branchKey);
+    branchButton.textContent = branchButton.disabled ? "正在创建分支…" : "创建分支继续";
+    branchButton.addEventListener("click", () => void forkThread(threadId, entry.turnId));
+    reply.append(branchButton);
+    el.timeline.append(reply);
   }
   el.timeline.lastElementChild?.scrollIntoView({ block: "nearest" });
+}
+
+async function forkThread(threadId, lastTurnId) {
+  const branchKey = `${threadId}:${lastTurnId}`;
+  if (state.forkPending.has(branchKey)) return;
+  state.forkPending.add(branchKey);
+  renderTimeline(threadId);
+  try {
+    const result = await request(`/api/threads/${encodeURIComponent(threadId)}/fork`, {
+      method: "POST",
+      body: { lastTurnId },
+    });
+    upsertThread(result.thread);
+    state.selectedId = result.thread.id;
+    state.timelines.set(result.thread.id, normalizeTimeline(result.history));
+    renderWorkspace();
+    showToast("已创建分支，可以继续输入");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    state.forkPending.delete(branchKey);
+    if (state.selectedId === threadId) renderTimeline(threadId);
+  }
 }
 
 function renderComposer() {
@@ -966,9 +1007,9 @@ function handleSocketEvent(event) {
   }
   if (!event.threadId) return;
   if (event.type === "agent_delta") {
-    appendDelta(event.threadId, event.itemId, "message", "assistant", event.delta);
+    appendDelta(event.threadId, event.itemId, "message", "assistant", event.delta, event.turnId);
   } else if (event.type === "command_output") {
-    appendDelta(event.threadId, event.itemId, "output", null, event.delta);
+    appendDelta(event.threadId, event.itemId, "output", null, event.delta, event.turnId);
   } else if (event.type === "activity") {
     upsertActivity(event.threadId, event);
   } else if (event.type === "error") {
@@ -977,11 +1018,11 @@ function handleSocketEvent(event) {
   if (state.selectedId === event.threadId) renderWorkspace();
 }
 
-function appendDelta(threadId, itemId, type, role, delta) {
+function appendDelta(threadId, itemId, type, role, delta, turnId = null) {
   const timeline = state.timelines.get(threadId) ?? [];
   let entry = timeline.find((candidate) => candidate.itemId === itemId);
   if (!entry) {
-    entry = { type, role, text: "", itemId, at: Date.now() };
+    entry = { type, role, text: "", itemId, turnId, at: Date.now() };
     timeline.push(entry);
   }
   entry.text += delta;

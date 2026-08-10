@@ -272,6 +272,51 @@ app.post("/api/threads/:threadId/messages", requireSession, asyncHandler(async (
   res.status(201).json({ thread: publicThread(registry.get(thread.id)), turnId: turn.id });
 }));
 
+app.post("/api/threads/:threadId/fork", requireSession, asyncHandler(async (req, res) => {
+  const source = await requireOwnedThreadFresh(req.params.threadId);
+  const lastTurnId = typeof req.body?.lastTurnId === "string" ? req.body.lastTurnId.trim() : "";
+  if (!lastTurnId) {
+    const error = new Error("请选择一条已完成的回复来创建分支。");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await bridge.start();
+  const result = await bridge.request("thread/fork", {
+    threadId: source.id,
+    cwd: source.cwd,
+    approvalPolicy: "on-request",
+    sandbox: "workspace-write",
+    lastTurnId,
+    ...threadStartSettings(source),
+  });
+  const forked = result?.thread;
+  const threadId = typeof forked?.id === "string" ? forked.id : "";
+  if (!threadId) throw new Error("Codex did not return the forked thread id.");
+
+  const thread = {
+    id: threadId,
+    cwd: source.cwd,
+    projectId: source.projectId,
+    title: `分支：${source.title}`.slice(0, 96),
+    status: "completed",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    activeTurnId: null,
+    model: source.model ?? null,
+    effort: source.effort ?? null,
+    serviceTier: source.serviceTier ?? null,
+    forkedFromId: source.id,
+    forkedFromTurnId: lastTurnId,
+  };
+  loadedThreads.add(threadId);
+  await registry.upsert(thread);
+  res.status(201).json({
+    thread: publicThread(thread),
+    history: extractThreadHistory(forked).timeline,
+  });
+}));
+
 app.post("/api/threads/:threadId/retry", requireSession, asyncHandler(async (req, res) => {
   const thread = await requireOwnedThreadFresh(req.params.threadId);
   if (!["failed", "interrupted"].includes(thread.status)) {
@@ -649,6 +694,8 @@ async function syncCodexThreads() {
       model: existing?.model ?? (typeof summary.model === "string" ? summary.model : null),
       effort: existing?.effort ?? null,
       serviceTier: existing?.serviceTier ?? null,
+      forkedFromId: existing?.forkedFromId ?? null,
+      forkedFromTurnId: existing?.forkedFromTurnId ?? null,
     });
     if (["running", "approval"].includes(status) && !threadWriters.has(summary.id)) {
       threadWriters.set(summary.id, { device: "Codex/其他设备", startedAt: Date.now(), sessionId: null });
@@ -886,6 +933,8 @@ function publicThread(thread) {
     model: thread.model ?? null,
     effort: thread.effort ?? null,
     serviceTier: thread.serviceTier ?? null,
+    forkedFromId: thread.forkedFromId ?? null,
+    forkedFromTurnId: thread.forkedFromTurnId ?? null,
     writer: writer ? { device: writer.device, startedAt: writer.startedAt } : null,
   };
 }
@@ -920,9 +969,9 @@ function extractThreadHistory(thread) {
       const type = safeString(item?.type);
       const text = extractItemText(item);
       if (type === "userMessage" && text) {
-        timeline.push({ type: "message", role: "user", text, at: item?.createdAt ?? null });
+        timeline.push({ type: "message", role: "user", text, turnId: safeString(turn?.id) || null, at: item?.createdAt ?? null });
       } else if (type === "agentMessage" && text) {
-        timeline.push({ type: "message", role: "assistant", text, at: item?.createdAt ?? null });
+        timeline.push({ type: "message", role: "assistant", text, turnId: safeString(turn?.id) || null, at: item?.createdAt ?? null });
       } else if (type && type !== "reasoning") {
         timeline.push({ type: "activity", phase: "completed", label: describeItem(item), at: item?.createdAt ?? null });
       }

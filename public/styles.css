@@ -589,6 +589,31 @@ select {
   background: #20281c;
 }
 
+.timeline-reply {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  width: min(100%, 660px);
+}
+
+.timeline-reply .timeline-message {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.branch-button {
+  padding: 3px 0;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+}
+
+.branch-button:hover:not(:disabled) {
+  color: var(--green);
+  text-decoration: underline;
+}
+
 .timeline-activity {
   display: flex;
   gap: 10px;
