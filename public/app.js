@@ -74,12 +74,8 @@ const el = {
   modelSelect: document.querySelector("#modelSelect"),
   reasoningSelect: document.querySelector("#reasoningSelect"),
   serviceTierSelect: document.querySelector("#serviceTierSelect"),
-  mobileProjectPanel: document.querySelector("#mobileProjectPanel"),
-  mobileProjectCount: document.querySelector("#mobileProjectCount"),
-  mobileProjectList: document.querySelector("#mobileProjectList"),
   bottomNav: document.querySelector("#bottomNav"),
   tasksNavButton: document.querySelector("#tasksNavButton"),
-  projectsNavButton: document.querySelector("#projectsNavButton"),
   settingsNavButton: document.querySelector("#settingsNavButton"),
   taskHeader: document.querySelector(".task-header"),
   taskHeading: document.querySelector("#taskHeading"),
@@ -263,7 +259,6 @@ el.composer.addEventListener("submit", async (event) => {
 });
 
 el.tasksNavButton.addEventListener("click", () => switchMobileTab("tasks"));
-el.projectsNavButton.addEventListener("click", () => switchMobileTab("projects"));
 el.settingsNavButton.addEventListener("click", () => switchMobileTab("settings"));
 
 el.notificationButton.addEventListener("click", () => void enableNotifications());
@@ -633,7 +628,6 @@ function renderWorkspace() {
   renderConnection();
   renderProjects();
   renderModelSettings();
-  renderMobileProjectPanel();
   renderTaskList();
   renderDetail();
   renderComposer();
@@ -644,7 +638,7 @@ function renderWorkspace() {
 }
 
 function switchMobileTab(tab) {
-  if (!["tasks", "projects", "settings"].includes(tab)) return;
+  if (!["tasks", "settings"].includes(tab)) return;
   if (tab !== "tasks") state.selectedId = null;
   state.mobileTab = tab;
   renderWorkspace();
@@ -656,12 +650,11 @@ function renderMobileNavigation() {
   const hasSelection = Boolean(selectedThread());
   const nonTaskTab = mobile && state.mobileTab !== "tasks";
   el.bottomNav.hidden = !mobile || hasSelection;
-  el.projectBar.hidden = mobile;
+  el.projectBar.hidden = mobile && (state.mobileTab !== "tasks" || hasSelection);
   el.modelBar.hidden = mobile && state.mobileTab !== "settings";
-  el.mobileProjectPanel.hidden = !mobile || state.mobileTab !== "projects";
   el.taskHeader.hidden = nonTaskTab;
 
-  for (const [tab, button] of [["tasks", el.tasksNavButton], ["projects", el.projectsNavButton], ["settings", el.settingsNavButton]]) {
+  for (const [tab, button] of [["tasks", el.tasksNavButton], ["settings", el.settingsNavButton]]) {
     button.classList.toggle("active", state.mobileTab === tab && !hasSelection);
   }
 }
@@ -748,48 +741,6 @@ function renderProjects() {
   }
   el.projectSelect.value = state.projects.some((project) => project.id === selected) ? selected : state.projects[0]?.id ?? "";
   el.projectSelect.onchange = () => renderComposer();
-}
-
-function renderMobileProjectPanel() {
-  el.mobileProjectCount.textContent = `${state.projects.length} 个项目`;
-  el.mobileProjectList.replaceChildren();
-  if (state.projects.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "empty-state";
-    empty.textContent = "电脑端还没有配置可用项目。";
-    el.mobileProjectList.append(empty);
-    return;
-  }
-
-  const selectedId = el.projectSelect.value;
-  for (const project of state.projects) {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = `mobile-project-row${project.id === selectedId ? " selected" : ""}`;
-    row.setAttribute("aria-pressed", String(project.id === selectedId));
-    const copy = document.createElement("span");
-    copy.className = "mobile-project-copy";
-    const title = document.createElement("strong");
-    title.textContent = project.name;
-    const path = document.createElement("small");
-    path.textContent = project.cwd;
-    copy.append(title, path);
-    const threads = state.threads.filter((thread) => thread.projectId === project.id);
-    const meta = document.createElement("span");
-    meta.className = "mobile-project-meta";
-    const activeCount = threads.filter((thread) => isActiveTask(thread.status)).length;
-    meta.textContent = `${threads.length} 个任务${activeCount ? ` · ${activeCount} 个进行中` : ""}`;
-    row.append(copy, meta);
-    row.addEventListener("click", () => {
-      el.projectSelect.value = project.id;
-      state.selectedId = null;
-      state.mobileTab = "tasks";
-      renderWorkspace();
-      scrollWorkspaceToTop();
-      showToast(`已切换到${project.name}`);
-    });
-    el.mobileProjectList.append(row);
-  }
 }
 
 function renderTaskList() {
