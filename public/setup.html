@@ -22,6 +22,15 @@
           <button id="refreshButton" class="button secondary" type="button">重新检查</button>
           <span id="lastChecked" class="muted">尚未检查</span>
         </div>
+        <div class="platform-picker">
+          <label for="platformSelect">部署系统</label>
+          <select id="platformSelect">
+            <option value="auto">自动识别当前系统</option>
+            <option value="macos">macOS</option>
+            <option value="windows">Windows</option>
+          </select>
+          <span id="platformHint" class="muted">正在识别…</span>
+        </div>
       </section>
 
       <nav class="wizard-steps" aria-label="部署步骤">
@@ -41,9 +50,9 @@
             <span id="environmentStatus" class="step-status pending">检查中</span>
           </div>
           <div id="environmentChecks" class="check-list"></div>
-          <div id="macServiceAction" class="service-action" hidden>
-            <div><strong>让 Mac 自动启动 Codex Pocket</strong><p id="macServiceGuide" class="card-copy">生成 LaunchAgent 配置后，服务可以在登录 Mac 时自动启动。</p></div>
-            <button id="macServiceButton" class="button secondary" type="button">自动配置后台服务</button>
+          <div id="serviceAction" class="service-action" hidden>
+            <div><strong id="serviceActionTitle">让电脑自动启动 Codex Pocket</strong><p id="serviceGuide" class="card-copy">生成后台配置后，服务可以在登录系统时自动启动。</p></div>
+            <button id="serviceButton" class="button secondary" type="button">自动配置后台服务</button>
           </div>
           <div class="card-actions step-actions"><button id="environmentNext" class="button primary" type="button">下一步：填写配置</button></div>
         </article>

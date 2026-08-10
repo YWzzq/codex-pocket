@@ -19,6 +19,8 @@ const PUBLIC_DIR = path.join(PROJECT_ROOT, "public");
 const RUNTIME_DIR = path.join(PROJECT_ROOT, ".codex-pocket");
 const ENV_FILE = path.join(PROJECT_ROOT, ".env");
 const MACOS_SERVICE_SCRIPT = path.join(PROJECT_ROOT, "scripts", "macos-service.mjs");
+const WINDOWS_SERVICE_SCRIPT = path.join(PROJECT_ROOT, "scripts", "windows-service.ps1");
+const WINDOWS_TASK_NAME = "Codex Pocket";
 const THREADS_FILE = path.join(RUNTIME_DIR, "threads.json");
 const DEVICES_FILE = path.join(RUNTIME_DIR, "devices.json");
 const PORT = parsePort(process.env.PORT ?? "8787");
@@ -88,16 +90,18 @@ app.get("/api/health", (req, res) => {
 });
 
 app.get("/api/setup/status", requireLocalAdmin, asyncHandler(async (req, res) => {
-  const [envFile, tunnelConfig, tunnelCredentials, cloudflared, serverAgent, tunnelAgent] = await Promise.all([
+  const [envFile, tunnelConfig, tunnelCredentials, cloudflared, serverAgent, tunnelAgent, windowsTask] = await Promise.all([
     fileExists(ENV_FILE),
     fileExists(path.join(os.homedir(), ".cloudflared", "config.yml")),
     hasTunnelCredentials(),
     commandAvailable("cloudflared", ["--version"]),
     launchAgentLoaded("com.codex-pocket.server"),
     launchAgentLoaded("com.codex-pocket.cloudflared"),
+    windowsTaskLoaded(),
   ]);
   res.json({
     platform: process.platform,
+    platformLabel: process.platform === "win32" ? "Windows" : process.platform === "darwin" ? "macOS" : process.platform,
     host: os.hostname(),
     localUrl: localAddress(HOST, PORT),
     publicUrl: publicUrl.toString(),
@@ -107,6 +111,7 @@ app.get("/api/setup/status", requireLocalAdmin, asyncHandler(async (req, res) =>
     tunnelCredentials,
     serverAgent,
     tunnelAgent,
+    windowsTask,
     appServer: bridge.status,
     projects: projects.map(publicProject),
   });
@@ -140,6 +145,28 @@ app.post("/api/setup/macos-service", requireLocalAdmin, asyncHandler(async (req,
     installed: true,
     restartRequired: true,
     nextStep: "停止当前终端中的 npm 服务后，再运行 npm run macos:start。",
+  });
+}));
+
+app.post("/api/setup/windows-service", requireLocalAdmin, asyncHandler(async (req, res) => {
+  if (process.platform !== "win32") {
+    res.status(400).json({ error: "Windows 后台任务只支持在 Windows 上配置。" });
+    return;
+  }
+  try {
+    await execFileAsync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", WINDOWS_SERVICE_SCRIPT, "install"], {
+      cwd: PROJECT_ROOT,
+      timeout: 15_000,
+      windowsHide: true,
+    });
+  } catch (error) {
+    throw new Error(error.stderr?.trim() || error.message || "无法生成 Windows 后台任务配置。");
+  }
+  res.json({
+    ok: true,
+    installed: true,
+    restartRequired: true,
+    nextStep: "关闭当前 PowerShell 服务窗口后，再运行 .\\scripts\\windows-service.ps1 start。",
   });
 }));
 
@@ -1434,6 +1461,16 @@ async function launchAgentLoaded(label) {
   if (process.platform !== "darwin" || typeof process.getuid !== "function") return false;
   try {
     await execFileAsync("launchctl", ["print", `gui/${process.getuid()}/${label}`], { timeout: 3_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function windowsTaskLoaded() {
+  if (process.platform !== "win32") return false;
+  try {
+    await execFileAsync("schtasks.exe", ["/Query", "/TN", WINDOWS_TASK_NAME], { timeout: 3_000, windowsHide: true });
     return true;
   } catch {
     return false;

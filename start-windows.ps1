@@ -1,3 +1,5 @@
+param([switch]$Background)
+
 $ErrorActionPreference = "Stop"
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -62,5 +64,9 @@ Write-Host "本机地址：$localUrl"
 Write-Host "手机访问地址：$publicUrl"
 Write-Host "按 Ctrl+C 停止服务。" -ForegroundColor DarkGray
 
-& npm run dev
+if ($Background) {
+  & npm start
+} else {
+  & npm run dev
+}
 exit $LASTEXITCODE

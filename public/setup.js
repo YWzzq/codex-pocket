@@ -1,4 +1,4 @@
-const state = { candidates: [], selectedRoots: new Set(), currentStep: 1 };
+const state = { candidates: [], selectedRoots: new Set(), currentStep: 1, platformChoice: localStorage.getItem("codex-pocket.setup.platform") ?? "auto", detectedPlatform: "" };
 
 const el = {
   refreshButton: document.querySelector("#refreshButton"),
@@ -6,9 +6,12 @@ const el = {
   setupError: document.querySelector("#setupError"),
   environmentStatus: document.querySelector("#environmentStatus"),
   environmentChecks: document.querySelector("#environmentChecks"),
-  macServiceAction: document.querySelector("#macServiceAction"),
-  macServiceGuide: document.querySelector("#macServiceGuide"),
-  macServiceButton: document.querySelector("#macServiceButton"),
+  platformSelect: document.querySelector("#platformSelect"),
+  platformHint: document.querySelector("#platformHint"),
+  serviceAction: document.querySelector("#serviceAction"),
+  serviceActionTitle: document.querySelector("#serviceActionTitle"),
+  serviceGuide: document.querySelector("#serviceGuide"),
+  serviceButton: document.querySelector("#serviceButton"),
   projectsStatus: document.querySelector("#projectsStatus"),
   configStatus: document.querySelector("#configStatus"),
   configForm: document.querySelector("#configForm"),
@@ -33,7 +36,13 @@ el.refreshButton.addEventListener("click", () => void refreshAll());
 el.discoverButton.addEventListener("click", () => void discoverProjects());
 el.saveProjectsButton.addEventListener("click", () => void saveProjects());
 el.pairButton.addEventListener("click", () => void loadPairing());
-el.macServiceButton.addEventListener("click", () => void configureMacService());
+el.platformSelect.value = ["auto", "macos", "windows"].includes(state.platformChoice) ? state.platformChoice : "auto";
+el.platformSelect.addEventListener("change", () => {
+  state.platformChoice = el.platformSelect.value;
+  localStorage.setItem("codex-pocket.setup.platform", state.platformChoice);
+  if (state.lastStatus) renderStatus(state.lastStatus);
+});
+el.serviceButton.addEventListener("click", () => void configureService());
 el.environmentNext.addEventListener("click", () => goToStep(2));
 el.tunnelNext.addEventListener("click", () => goToStep(5));
 el.configForm.addEventListener("submit", (event) => {
@@ -99,14 +108,21 @@ async function saveConfig() {
 }
 
 function renderStatus(status) {
+  state.lastStatus = status;
+  state.detectedPlatform = status.platform === "win32" ? "windows" : status.platform === "darwin" ? "macos" : status.platform;
+  const selectedPlatform = state.platformChoice === "auto" ? state.detectedPlatform : state.platformChoice;
+  const platformLabel = selectedPlatform === "windows" ? "Windows" : selectedPlatform === "macos" ? "macOS" : selectedPlatform;
+  el.platformHint.textContent = state.platformChoice === "auto" ? `已识别：${status.platformLabel ?? platformLabel}` : `当前查看：${platformLabel}（实际系统：${status.platformLabel ?? state.detectedPlatform}）`;
   const checks = [
     ["Node.js", true, `运行中 · ${status.platform}`],
     ["Codex app-server", status.appServer?.state === "ready", status.appServer?.detail ?? "未连接"],
     ["项目配置 .env", status.envFile, status.envFile ? "已找到" : "未找到，使用默认配置"],
     ["cloudflared", status.cloudflared, status.cloudflared ? "已安装" : "未安装"],
     ["Tunnel 配置", status.tunnelConfig && status.tunnelCredentials, status.tunnelConfig && status.tunnelCredentials ? "配置和凭据已找到" : "需要 Cloudflare 授权"],
-    ["Mac 后台服务", status.serverAgent, status.serverAgent ? "LaunchAgent 已运行" : "尚未由 LaunchAgent 接管"],
-    ["Cloudflare 后台服务", status.tunnelAgent, status.tunnelAgent ? "LaunchAgent 已运行" : "尚未由 LaunchAgent 接管"],
+    ...(selectedPlatform === "windows"
+      ? [["Windows 后台任务", status.windowsTask, status.windowsTask ? "登录启动任务已创建" : "尚未配置登录启动"]]
+      : [["Mac 后台服务", status.serverAgent, status.serverAgent ? "LaunchAgent 已运行" : "尚未由 LaunchAgent 接管"]]),
+    [selectedPlatform === "windows" ? "Cloudflare Tunnel" : "Cloudflare 后台服务", selectedPlatform === "windows" ? Boolean(status.cloudflared && status.tunnelConfig && status.tunnelCredentials) : status.tunnelAgent, selectedPlatform === "windows" ? status.cloudflared ? "已安装，按 Tunnel 步骤启动" : "尚未安装" : status.tunnelAgent ? "LaunchAgent 已运行" : "尚未由 LaunchAgent 接管"],
   ];
   el.environmentChecks.replaceChildren();
   for (const [label, ok, value] of checks) {
@@ -120,30 +136,35 @@ function renderStatus(status) {
     row.append(name, detail);
     el.environmentChecks.append(row);
   }
-  const serviceReady = Boolean(status.serverAgent);
-  el.macServiceAction.hidden = serviceReady;
-  if (!serviceReady) {
-    el.macServiceButton.disabled = false;
-    el.macServiceButton.textContent = "自动配置后台服务";
-  }
+  const serviceReady = selectedPlatform === "windows" ? Boolean(status.windowsTask) : Boolean(status.serverAgent);
+  const canConfigure = selectedPlatform === state.detectedPlatform;
+  el.serviceAction.hidden = serviceReady;
+  el.serviceActionTitle.textContent = selectedPlatform === "windows" ? "让 Windows 自动启动 Codex Pocket" : "让 Mac 自动启动 Codex Pocket";
+  el.serviceGuide.textContent = canConfigure
+    ? selectedPlatform === "windows" ? "生成登录启动任务后，Codex Pocket 会在 Windows 登录时自动启动。" : "生成 LaunchAgent 配置后，Codex Pocket 会在登录 Mac 时自动启动。"
+    : `这是 Windows 引导预览；请在 Windows 电脑本机打开此页面后再执行配置。`;
+  el.serviceButton.disabled = !canConfigure;
+  el.serviceButton.textContent = selectedPlatform === "windows" ? "自动配置 Windows 后台任务" : "自动配置 Mac 后台服务";
   setStep(el.environmentStatus, checks.every(([, ok]) => ok) ? "已完成" : "需要处理", checks.every(([, ok]) => ok) ? "ok" : "action");
   el.publicUrl.textContent = `公网地址：${status.publicUrl}`;
   const tunnelReady = status.cloudflared && status.tunnelConfig && status.tunnelCredentials && status.tunnelAgent;
   setStep(el.tunnelStatus, tunnelReady ? "已就绪" : "需要操作", tunnelReady ? "ok" : "action");
 }
 
-async function configureMacService() {
-  el.macServiceButton.disabled = true;
-  el.macServiceButton.textContent = "正在生成配置…";
+async function configureService() {
+  const selectedPlatform = state.platformChoice === "auto" ? state.detectedPlatform : state.platformChoice;
+  const endpoint = selectedPlatform === "windows" ? "/api/setup/windows-service" : "/api/setup/macos-service";
+  el.serviceButton.disabled = true;
+  el.serviceButton.textContent = "正在生成配置…";
   setError("");
   try {
-    const result = await request("/api/setup/macos-service", { method: "POST", body: JSON.stringify({}) });
-    el.macServiceGuide.textContent = `${result.nextStep} 当前终端服务不要与后台服务同时运行。`;
-    el.macServiceButton.textContent = "配置已生成";
+    const result = await request(endpoint, { method: "POST", body: JSON.stringify({}) });
+    el.serviceGuide.textContent = `${result.nextStep} 当前终端服务不要与后台服务同时运行。`;
+    el.serviceButton.textContent = "配置已生成";
   } catch (error) {
     setError(error.message);
-    el.macServiceButton.disabled = false;
-    el.macServiceButton.textContent = "自动配置后台服务";
+    el.serviceButton.disabled = false;
+    el.serviceButton.textContent = selectedPlatform === "windows" ? "自动配置 Windows 后台任务" : "自动配置 Mac 后台服务";
   }
 }
 

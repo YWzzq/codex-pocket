@@ -125,6 +125,20 @@ CODEX_POCKET_ROOTS=C:\Users\your-name\Documents\project-one;C:\Users\your-name\D
 CODEX_BIN=codex
 ```
 
+Windows 也可以在本机打开 `/setup`，向导会自动识别系统；切换到 Windows 后会显示 Windows 后台任务配置按钮。按钮会创建“Codex Pocket”登录启动任务，完成后关闭当前 PowerShell 窗口，再运行：
+
+```powershell
+.\scripts\windows-service.ps1 start
+```
+
+停止、查看或删除任务：
+
+```powershell
+.\scripts\windows-service.ps1 stop
+.\scripts\windows-service.ps1 status
+.\scripts\windows-service.ps1 uninstall
+```
+
 如果 `codex` 不在 PATH 中，将 `CODEX_BIN` 改成 `codex.exe` 的完整路径。Cloudflare Tunnel 或其他 HTTPS 网关需要另外按对应 Windows 文档运行；Pocket 本身仍只监听 `127.0.0.1`。
 
 ## 手机远程访问：Cloudflare Tunnel（当前方案）

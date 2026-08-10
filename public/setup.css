@@ -40,6 +40,10 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .setup-hero > p:not(.eyebrow) { max-width: 620px; margin: 16px 0 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
 .hero-actions, .card-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .hero-actions { margin-top: 22px; }
+.platform-picker { display: flex; align-items: center; gap: 10px; margin-top: 18px; color: var(--muted); font-size: 12px; }
+.platform-picker label { font-weight: 750; }
+.platform-picker select { min-height: 36px; padding: 0 30px 0 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--surface); font: inherit; }
+.platform-picker select:focus { border-color: var(--green); outline: none; }
 .wizard-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 0 0 16px; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: rgba(21,29,23,.72); }
 .wizard-step-button { min-height: 36px; padding: 0 8px; border: 1px solid transparent; border-radius: 8px; color: var(--muted); background: transparent; font-size: 12px; font-weight: 750; }
 .wizard-step-button:hover { color: var(--text); background: var(--surface); }
@@ -98,6 +102,7 @@ code, .code-line, .pair-code { font-family: ui-monospace, SFMono-Regular, Menlo,
   .setup-shell { padding-right: 14px; padding-left: 14px; }
   .wizard-steps { grid-template-columns: repeat(5, minmax(72px, 1fr)); overflow-x: auto; }
   .wizard-step-button { white-space: nowrap; }
+  .platform-picker { align-items: flex-start; flex-direction: column; }
   .setup-grid { grid-template-columns: 1fr; }
   .pair-card { grid-column: auto; }
   .pair-content { align-items: flex-start; flex-direction: column; }
