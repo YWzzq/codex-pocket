@@ -1,15 +1,15 @@
 # Codex Pocket
 
-Codex Pocket 是一个手机优先的本地 Codex 控制台。手机只负责创建任务、查看进度、继续追问、停止任务和处理审批；实际工作仍由 Mac 上的 Codex、项目文件、登录状态和工具完成。
+Codex Pocket 是一个手机优先的本地 Codex 控制台。手机只负责创建任务、查看进度、继续追问、停止任务和处理审批；实际工作仍由电脑上的 Codex、项目文件、登录状态和工具完成。
 
 它不是桌面 Codex 界面的远程镜像。架构如下：
 
 ```text
 手机浏览器
   -> Tailscale 私有 HTTPS
-  -> 本机 Broker（127.0.0.1:8787）
+  -> 电脑上的 Broker（127.0.0.1:8787）
   -> codex app-server（stdio）
-  -> 本机 Codex 与项目文件
+  -> 电脑上的 Codex 与项目文件
 ```
 
 ## 当前能力
@@ -27,7 +27,7 @@ Codex Pocket 是一个手机优先的本地 Codex 控制台。手机只负责创
 
 ## 前置条件
 
-- macOS 上已经安装并登录 Codex
+- macOS 或 Windows 上已经安装并登录 Codex
 - Node.js 22 或更高版本
 - 手机和 Mac 登录同一个 Tailscale 网络（远程访问时需要）
 
@@ -58,7 +58,7 @@ export CODEX_POCKET_ROOTS="/absolute/path/to/project-one:/absolute/path/to/proje
 npm start
 ```
 
-在 Mac 浏览器打开 [http://127.0.0.1:8787](http://127.0.0.1:8787)。本机浏览器会自动建立本机授权，不需要输入配对码；页面中的“手机配对”按钮用于生成手机的一次性二维码和配对码。首次手机配对成功后，手机会获得一个长期设备授权；之后只要电脑服务和公网入口在线，就不需要重复输入配对码。
+在电脑浏览器打开 [http://127.0.0.1:8787](http://127.0.0.1:8787)。本机浏览器会自动建立本机授权，不需要输入配对码；页面中的“手机配对”按钮用于生成手机的一次性二维码和配对码。首次手机配对成功后，手机会获得一个长期设备授权；之后只要电脑服务和公网入口在线，就不需要重复输入配对码。
 
 也可以复制示例配置：
 
@@ -74,6 +74,33 @@ source .env
 set +a
 npm start
 ```
+
+### Windows 启动
+
+Windows 可以使用仓库中的 `start-windows.bat` 双击启动，或在 PowerShell 中运行：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+.\start-windows.ps1
+```
+
+脚本会自动读取项目根目录的 `.env`、检查 Node.js 22 和 Codex、首次运行时安装 npm 依赖，然后启动带热重载的开发服务。先复制配置模板并按 Windows 路径修改：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+`.env` 示例：
+
+```dotenv
+HOST=127.0.0.1
+PORT=8787
+PUBLIC_URL=https://your-domain.example
+CODEX_POCKET_ROOTS=C:\Users\your-name\Documents\project-one;C:\Users\your-name\Documents\project-two
+CODEX_BIN=codex
+```
+
+如果 `codex` 不在 PATH 中，将 `CODEX_BIN` 改成 `codex.exe` 的完整路径。Cloudflare Tunnel 或其他 HTTPS 网关需要另外按对应 Windows 文档运行；Pocket 本身仍只监听 `127.0.0.1`。
 
 ## 手机远程访问：Cloudflare Tunnel（当前方案）
 
@@ -121,7 +148,7 @@ curl https://codex.dogbot.cc.cd/api/health
 
 历史任务会从本机 Codex app-server 的 `thread/list` 同步，只保留 `CODEX_POCKET_ROOTS` 允许目录及其子目录中的线程。打开手机工作区或刷新页面时会重新同步；点击历史任务后可以读取完整对话，并继续发送消息。任务状态会通过 app-server 事件实时更新。
 
-在 Mac 工作区顶部点击“项目管理”，候选项目来自 Codex app-server 的历史线程，会按项目工作目录聚合并显示历史对话数量。勾选或取消项目后保存，配置会写入本机 `.env`，项目和历史任务会立即刷新；项目管理接口只接受回环地址，且只接受真实存在的 Codex 项目工作目录，至少保留一个项目。手机端不能修改允许项目。
+在电脑端工作区顶部点击“项目管理”，候选项目来自 Codex app-server 的历史线程，会按项目工作目录聚合并显示历史对话数量。勾选或取消项目后保存，配置会写入本机 `.env`，项目和历史任务会立即刷新；项目管理接口只接受回环地址，且只接受真实存在的 Codex 项目工作目录，至少保留一个项目。手机端不能修改允许项目。
 
 ## 模型设置
 
