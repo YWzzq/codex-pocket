@@ -10,6 +10,7 @@ const state = {
   threads: [],
   selectedId: null,
   timelines: new Map(),
+  timelineAutoFollow: new Map(),
   approvals: [],
   sessions: [],
   socket: null,
@@ -70,6 +71,7 @@ const el = {
   detailMeta: document.querySelector("#detailMeta"),
   detailWriter: document.querySelector("#detailWriter"),
   detailStatus: document.querySelector("#detailStatus"),
+  jumpLatestButton: document.querySelector("#jumpLatestButton"),
   timeline: document.querySelector("#timeline"),
   composer: document.querySelector("#composer"),
   promptInput: document.querySelector("#promptInput"),
@@ -205,6 +207,8 @@ el.deviceButton.addEventListener("click", () => {
 el.notificationButton.addEventListener("click", () => void enableNotifications());
 el.retryButton.addEventListener("click", () => void retryThread());
 el.releaseButton.addEventListener("click", () => void releaseThread());
+el.jumpLatestButton.addEventListener("click", () => jumpToLatest());
+el.timeline.addEventListener("scroll", () => handleTimelineScroll());
 
 el.approvalAllow.addEventListener("click", () => resolveApproval("allow"));
 el.approvalDeny.addEventListener("click", () => resolveApproval("deny"));
@@ -537,6 +541,7 @@ function resetToPairing() {
   state.threads = [];
   state.selectedId = null;
   state.timelines.clear();
+  state.timelineAutoFollow.clear();
   state.approvals = [];
   showPairing("此浏览器已断开连接。");
 }
@@ -722,7 +727,10 @@ function createTaskRow(thread) {
 function renderDetail() {
   const thread = selectedThread();
   el.detailView.hidden = !thread;
-  if (!thread) return;
+  if (!thread) {
+    el.jumpLatestButton.hidden = true;
+    return;
+  }
   el.detailTitle.textContent = thread.title;
   el.detailMeta.textContent = `${projectName(thread.projectId)} · ${thread.cwd}`;
   el.detailStatus.className = `status-label ${thread.status}`;
@@ -738,12 +746,15 @@ function renderDetail() {
 
 function renderTimeline(threadId) {
   const timeline = state.timelines.get(threadId) ?? [];
+  const followLatest = state.timelineAutoFollow.get(threadId) !== false;
+  const previousScrollTop = el.timeline.scrollTop;
   el.timeline.replaceChildren();
   if (timeline.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
     empty.textContent = "正在读取任务记录…";
     el.timeline.append(empty);
+    renderJumpLatestButton();
     return;
   }
   for (const entry of timeline) {
@@ -777,7 +788,39 @@ function renderTimeline(threadId) {
     reply.append(branchButton);
     el.timeline.append(reply);
   }
-  el.timeline.lastElementChild?.scrollIntoView({ block: "nearest" });
+  window.requestAnimationFrame(() => {
+    if (state.selectedId !== threadId) return;
+    if (followLatest) el.timeline.scrollTop = el.timeline.scrollHeight;
+    else el.timeline.scrollTop = previousScrollTop;
+    renderJumpLatestButton();
+  });
+}
+
+function isTimelineAtBottom() {
+  const distance = el.timeline.scrollHeight - (el.timeline.scrollTop + el.timeline.clientHeight);
+  return distance <= 48;
+}
+
+function handleTimelineScroll() {
+  const thread = selectedThread();
+  if (!thread) return;
+  state.timelineAutoFollow.set(thread.id, isTimelineAtBottom());
+  renderJumpLatestButton();
+}
+
+function renderJumpLatestButton() {
+  const thread = selectedThread();
+  const timeline = thread ? state.timelines.get(thread.id) ?? [] : [];
+  const show = Boolean(thread && timeline.length > 0 && state.timelineAutoFollow.get(thread.id) === false);
+  el.jumpLatestButton.hidden = !show;
+}
+
+function jumpToLatest() {
+  const thread = selectedThread();
+  if (!thread) return;
+  state.timelineAutoFollow.set(thread.id, true);
+  el.timeline.scrollTo({ top: el.timeline.scrollHeight, behavior: "smooth" });
+  renderJumpLatestButton();
 }
 
 async function forkThread(threadId, lastTurnId) {
@@ -832,6 +875,7 @@ function renderApproval() {
 
 async function selectThread(threadId) {
   state.selectedId = threadId;
+  state.timelineAutoFollow.set(threadId, true);
   renderWorkspace();
   scrollWorkspaceToTop();
   try {

@@ -563,10 +563,18 @@ select {
   font-size: 12px;
 }
 
+.timeline-shell {
+  position: relative;
+}
+
 .timeline {
   display: grid;
   gap: 12px;
+  max-height: min(62dvh, 720px);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   padding: 12px 0 22px;
+  scrollbar-width: thin;
 }
 
 .timeline > * {
@@ -588,6 +596,27 @@ select {
   line-height: 1.58;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.jump-latest-button {
+  position: absolute;
+  right: 10px;
+  bottom: 12px;
+  z-index: 3;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--surface-raised);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.jump-latest-button:hover {
+  border-color: var(--green);
+  color: var(--green);
 }
 
 .timeline-message.user {

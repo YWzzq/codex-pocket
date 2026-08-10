@@ -109,7 +109,10 @@
             <span id="detailStatus" class="status-label"></span>
           </div>
           <p id="detailWriter" class="writer-label" hidden></p>
-          <div id="timeline" class="timeline" aria-live="polite"></div>
+          <div class="timeline-shell">
+            <div id="timeline" class="timeline" aria-live="polite"></div>
+            <button id="jumpLatestButton" class="jump-latest-button" type="button" hidden>↓ 跳到最新</button>
+          </div>
         </section>
 
         <form id="composer" class="composer">
