@@ -33,17 +33,15 @@ public class MainActivity extends BridgeActivity {
     protected void load() {
         CapConfig base = CapConfig.loadDefault(this);
         String endpoint = ServerConfigPlugin.getSavedUrl(this);
-        if (endpoint == null) endpoint = base.getServerUrl();
-        if (endpoint == null) endpoint = ServerConfigPlugin.getDefaultUrl() + "/";
+        String pendingStartPath = ServerConfigPlugin.consumePendingStartPath(this);
 
         CapConfig.Builder builder = new CapConfig.Builder(this)
             .setHTML5mode(base.isHTML5Mode())
             .setServerUrl(endpoint)
             .setErrorPath(base.getErrorPath())
             .setHostname(base.getHostname())
-            .setStartPath(base.getStartPath())
             .setAndroidScheme(base.getAndroidScheme())
-            .setAllowNavigation(new String[] { endpoint })
+            .setAllowNavigation(endpoint == null ? new String[0] : new String[] { endpoint })
             .setOverriddenUserAgentString(base.getOverriddenUserAgentString())
             .setAppendedUserAgentString(base.getAppendedUserAgentString())
             .setBackgroundColor(base.getBackgroundColor())
@@ -55,6 +53,7 @@ public class MainActivity extends BridgeActivity {
             .setZoomableWebView(base.isZoomableWebView())
             .setLoggingEnabled(base.isLoggingEnabled())
             .setInitialFocus(base.isInitialFocus());
+        if (pendingStartPath != null) builder.setStartPath(pendingStartPath);
         JSONObject plugins = base.getObject("plugins");
         if (plugins != null) builder.setPluginsConfiguration(plugins);
         config = builder.create();

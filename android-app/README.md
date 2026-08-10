@@ -2,7 +2,7 @@
 
 这是独立的 Capacitor Android 工程，不修改根目录的网页和 Codex 服务端。
 
-生产 App 默认打开 `https://codex.dogbot.cc.cd`，电脑端 Codex Pocket 和 Cloudflare Tunnel 需要在线。配对页提供“扫一扫连接”，扫描电脑端生成的 HTTPS 配对二维码后会自动打开链接并完成授权；也可以继续手动输入配对码。
+首次打开 App 不需要预先配置域名：App 会先显示本地配对引导页，扫描电脑端生成的 HTTPS 配对二维码后自动保存服务器地址并完成授权。电脑端 Codex Pocket 和 Cloudflare Tunnel 需要在线。
 
 在 Android App 的“设置”页可以修改服务器地址。地址只接受 HTTPS 域名，不接受本机/IP、路径、查询参数或账号信息；保存后 App 会重启并连接新地址。服务器必须同时提供 Codex Pocket 网页、API 和 WebSocket。
 

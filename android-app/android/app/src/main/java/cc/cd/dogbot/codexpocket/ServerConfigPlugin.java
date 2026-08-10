@@ -19,6 +19,7 @@ public class ServerConfigPlugin extends Plugin {
 
     private static final String PREFS_NAME = "codex-pocket-server";
     private static final String URL_KEY = "url";
+    private static final String PENDING_START_PATH_KEY = "pending-start-path";
     private static final String DEFAULT_URL = "https://codex.dogbot.cc.cd";
 
     static String getDefaultUrl() {
@@ -27,6 +28,13 @@ public class ServerConfigPlugin extends Plugin {
 
     static String getSavedUrl(Context context) {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(URL_KEY, null);
+    }
+
+    static String consumePendingStartPath(Context context) {
+        android.content.SharedPreferences preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String path = preferences.getString(PENDING_START_PATH_KEY, null);
+        if (path != null) preferences.edit().remove(PENDING_START_PATH_KEY).apply();
+        return path;
     }
 
     static String normalizeUrl(String raw) {
@@ -66,17 +74,21 @@ public class ServerConfigPlugin extends Plugin {
     @PluginMethod
     public void set(PluginCall call) {
         final String normalized;
+        final String pendingStartPath;
         try {
             normalized = normalizeUrl(call.getString("url"));
+            pendingStartPath = normalizePairPath(normalized, call.getString("pairUrl"));
         } catch (IllegalArgumentException error) {
             call.reject(error.getMessage());
             return;
         }
 
-        getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        android.content.SharedPreferences.Editor editor = getContext()
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putString(URL_KEY, normalized)
-            .apply();
+            .putString(URL_KEY, normalized);
+        if (pendingStartPath != null) editor.putString(PENDING_START_PATH_KEY, pendingStartPath);
+        editor.apply();
 
         JSObject result = new JSObject();
         result.put("url", normalized);
@@ -89,9 +101,29 @@ public class ServerConfigPlugin extends Plugin {
         }
     }
 
+    private static String normalizePairPath(String serverUrl, String rawPairUrl) {
+        if (rawPairUrl == null || rawPairUrl.isBlank()) return null;
+        Uri server = Uri.parse(serverUrl);
+        Uri pair = Uri.parse(rawPairUrl.trim());
+        String pairToken = pair.getQueryParameter("pair");
+        if (!"https".equalsIgnoreCase(pair.getScheme()) || pair.getHost() == null
+            || !server.getHost().equalsIgnoreCase(pair.getHost())
+            || (pair.getPort() != -1 && pair.getPort() != 443)
+            || pair.getUserInfo() != null || pair.getFragment() != null
+            || (pair.getPath() != null && !pair.getPath().isEmpty() && !"/".equals(pair.getPath()))
+            || pairToken == null || pairToken.isBlank()) {
+            throw new IllegalArgumentException("二维码不是有效的 HTTPS 配对链接");
+        }
+        String query = pair.getEncodedQuery();
+        return query == null || query.isEmpty() ? "" : "?" + query;
+    }
+
     @PluginMethod
     public void reset(PluginCall call) {
-        getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().remove(URL_KEY).apply();
+        getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .remove(URL_KEY)
+            .remove(PENDING_START_PATH_KEY)
+            .apply();
         call.resolve();
         Activity activity = getActivity();
         if (activity != null) {

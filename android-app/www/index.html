@@ -3,9 +3,72 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#121513" />
     <title>Codex Pocket</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, -apple-system, sans-serif; background: #121513; color: #eef2e9; }
+      * { box-sizing: border-box; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: #121513; }
+      main { width: min(100%, 420px); }
+      .brand { color: #b4d96d; font-size: 14px; font-weight: 700; letter-spacing: .02em; }
+      h1 { margin: 34px 0 12px; font-size: 34px; line-height: 1.1; }
+      p { color: #a8b1a5; line-height: 1.6; }
+      button { width: 100%; min-height: 50px; margin-top: 18px; border: 0; border-radius: 10px; background: #b4d96d; color: #1c2617; font-size: 16px; font-weight: 750; }
+      button:disabled { opacity: .55; }
+      #message { min-height: 24px; margin-top: 16px; color: #efb277; font-size: 14px; }
+    </style>
   </head>
   <body>
-    <p>正在连接 Codex Pocket…</p>
+    <main>
+      <div class="brand">CODEX POCKET</div>
+      <h1>连接你的电脑</h1>
+      <p>首次使用不需要填写服务器地址。打开电脑端 Codex Pocket 的配对页面，扫描二维码即可自动连接。</p>
+      <button id="scan" type="button">扫一扫连接</button>
+      <p id="message" role="status"></p>
+    </main>
+    <script>
+      const scanButton = document.querySelector("#scan");
+      const message = document.querySelector("#message");
+      const scanner = globalThis.Capacitor?.Plugins?.CapacitorBarcodeScanner;
+      const serverConfig = globalThis.Capacitor?.Plugins?.ServerConfig;
+
+      function cancelled(error) {
+        const text = String(error?.message ?? error ?? "").toLowerCase();
+        return text.includes("cancel") || text.includes("取消") || text.includes("user_cancelled");
+      }
+
+      async function scan() {
+        if (!scanner || !serverConfig) {
+          message.textContent = "当前 App 不支持扫码，请安装新版 APK。";
+          return;
+        }
+        scanButton.disabled = true;
+        message.textContent = "正在打开相机…";
+        try {
+          const result = await scanner.scanBarcode({
+            hint: 0,
+            scanInstructions: "将电脑端显示的配对二维码放入框内",
+            scanText: "取消",
+            cancelButtonAccessibilityLabel: "取消扫码",
+            torchButtonOnAccessibilityLabel: "关闭手电筒",
+            torchButtonOffAccessibilityLabel: "打开手电筒",
+            android: { scanningLibrary: "zxing" },
+          });
+          const value = String(result?.ScanResult ?? "").trim();
+          const url = new URL(value);
+          if (url.protocol !== "https:" || !url.searchParams.get("pair")) {
+            throw new Error("请扫描电脑端生成的 HTTPS 配对二维码。");
+          }
+          message.textContent = "已识别，正在连接电脑…";
+          await serverConfig.set({ url: url.origin, pairUrl: url.toString() });
+        } catch (error) {
+          if (!cancelled(error)) message.textContent = error?.message || "扫码失败，请重试。";
+          else message.textContent = "";
+          scanButton.disabled = false;
+        }
+      }
+
+      scanButton.addEventListener("click", scan);
+    </script>
   </body>
 </html>

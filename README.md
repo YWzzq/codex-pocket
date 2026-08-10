@@ -178,7 +178,7 @@ npx --yes @bubblewrap/cli build
 
 签名后的个人安装包会生成在 `app-release-signed.apk`。签名密钥保存在用户目录的 `~/.bubblewrap/codexpocket.keystore`，不要提交到 GitHub；更换签名密钥后需要同步更新 `public/.well-known/assetlinks.json` 中的 SHA-256 指纹。
 
-另外，`android-app/` 是隔离的 Capacitor Android 工程，用于逐步演进为原生 App。当前版本加载同一个 HTTPS 工作区，并已接入 Android 返回键、系统栏、本地通知、首页扫码配对和可配置服务器地址；后续可以在该目录加入文件选择等原生交互，而不会影响根目录网页版本。
+另外，`android-app/` 是隔离的 Capacitor Android 工程，用于逐步演进为原生 App。首次打开 App 不需要预先配置域名，会先显示本地扫码引导页；扫描电脑端二维码后自动保存 HTTPS 服务器地址并进入工作区。当前版本还接入了 Android 返回键、系统栏、本地通知和可配置服务器地址；后续可以在该目录加入文件选择等原生交互，而不会影响根目录网页版本。
 
 ## 连接管理
 
