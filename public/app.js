@@ -172,8 +172,10 @@ el.interruptButton.addEventListener("click", async () => {
   if (!thread) return;
   try {
     el.interruptButton.disabled = true;
-    await request(`/api/threads/${encodeURIComponent(thread.id)}/interrupt`, { method: "POST" });
-    showToast("已请求停止任务");
+    const result = await request(`/api/threads/${encodeURIComponent(thread.id)}/interrupt`, { method: "POST" });
+    if (result.thread) upsertThread(result.thread);
+    renderWorkspace();
+    showToast(result.recovered ? "进程已不存在，已清理占用，可以重新输入" : "已请求停止任务");
   } catch (error) {
     showToast(error.message);
   } finally {
@@ -851,7 +853,9 @@ async function releaseThread() {
     const result = await request(`/api/threads/${encodeURIComponent(thread.id)}/release`, { method: "POST" });
     if (result.thread) upsertThread(result.thread);
     renderWorkspace();
-    showToast(result.status === "stopping" ? "已请求停止并释放任务" : "已释放本地占用");
+    showToast(result.recovered
+      ? "进程已不存在，已清理占用，可以重新输入"
+      : result.status === "stopping" ? "已请求停止并释放任务" : "已释放本地占用");
   } catch (error) {
     showToast(error.message);
   } finally {

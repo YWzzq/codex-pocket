@@ -309,16 +309,16 @@ app.post("/api/threads/:threadId/release", requireSession, asyncHandler(async (r
   const thread = requireOwnedThread(req.params.threadId);
   const turnId = activeTurns.get(thread.id) ?? thread.activeTurnId;
   if (turnId) {
-    await bridge.start();
-    await bridge.request("turn/interrupt", { threadId: thread.id, turnId });
-    const updated = await updateThread(thread.id, { status: "stopping", activeTurnId: turnId });
-    res.json({ ok: true, status: "stopping", thread: publicThread(updated) });
+    const result = await stopThreadTurn(thread, turnId);
+    res.json(result);
     return;
   }
   if (["starting", "running", "approval", "stopping"].includes(thread.status)) {
-    throw threadRetryError("Codex 仍在执行这个任务，无法安全释放；请在原设备停止任务。");
+    const updated = await recoverThreadExecution(thread, "没有找到对应的 Codex 进程");
+    res.json({ ok: true, status: "interrupted", recovered: true, thread: publicThread(updated) });
+    return;
   }
-  threadWriters.delete(thread.id);
+  clearThreadExecution(thread.id);
   const updated = await updateThread(thread.id, { activeTurnId: null });
   res.json({ ok: true, status: thread.status, thread: publicThread(updated) });
 }));
@@ -327,13 +327,15 @@ app.post("/api/threads/:threadId/interrupt", requireSession, asyncHandler(async 
   const thread = requireOwnedThread(req.params.threadId);
   const turnId = activeTurns.get(thread.id) ?? thread.activeTurnId;
   if (!turnId) {
+    if (["starting", "running", "approval", "stopping"].includes(thread.status)) {
+      const updated = await recoverThreadExecution(thread, "没有找到对应的 Codex 进程");
+      res.json({ ok: true, status: "interrupted", recovered: true, thread: publicThread(updated) });
+      return;
+    }
     res.status(409).json({ error: "This task is not currently running." });
     return;
   }
-  await bridge.start();
-  await bridge.request("turn/interrupt", { threadId: thread.id, turnId });
-  await updateThread(thread.id, { status: "stopping" });
-  res.json({ ok: true });
+  res.json(await stopThreadTurn(thread, turnId));
 }));
 
 app.get("/api/approvals", requireSession, (req, res) => {
@@ -488,6 +490,41 @@ async function startTurn(thread, prompt, session) {
   } finally {
     pendingTurnStarts.delete(thread.id);
   }
+}
+
+async function stopThreadTurn(thread, turnId) {
+  try {
+    await bridge.start();
+    await bridge.request("turn/interrupt", { threadId: thread.id, turnId });
+    const updated = await updateThread(thread.id, { status: "stopping", activeTurnId: turnId });
+    return { ok: true, status: "stopping", thread: publicThread(updated) };
+  } catch (error) {
+    if (!isMissingProcessError(error)) throw error;
+    const updated = await recoverThreadExecution(thread, "没有找到对应的 Codex 进程");
+    return { ok: true, status: "interrupted", recovered: true, thread: publicThread(updated) };
+  }
+}
+
+async function recoverThreadExecution(thread, reason) {
+  clearThreadExecution(thread.id);
+  return updateThread(thread.id, {
+    status: "interrupted",
+    activeTurnId: null,
+    failureReason: reason,
+  });
+}
+
+function clearThreadExecution(threadId) {
+  activeTurns.delete(threadId);
+  threadWriters.delete(threadId);
+  for (const [approvalId, approval] of approvals) {
+    if (approval.threadId === threadId) approvals.delete(approvalId);
+  }
+}
+
+function isMissingProcessError(error) {
+  const message = String(error?.message ?? "");
+  return /(process|进程).*(not found|does not exist|不存在)|(not found|does not exist|不存在).*(process|进程)/i.test(message);
 }
 
 async function getModelCatalog() {
