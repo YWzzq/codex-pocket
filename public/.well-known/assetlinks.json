@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "cc.cd.dogbot.codexpocket",
+      "sha256_cert_fingerprints": [
+        "E9:61:5D:F8:07:C9:65:26:52:9D:5E:AB:CC:A2:EF:5C:C3:FB:2D:13:9E:EA:F3:C5:1F:A5:4D:CB:4B:9E:F2:11"
+      ]
+    }
+  }
+]

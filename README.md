@@ -161,6 +161,19 @@ curl https://codex.dogbot.cc.cd/api/health
 
 建议在 Cloudflare Zero Trust 中为 `codex.dogbot.cc.cd` 增加 Access 应用，只允许你的邮箱通过一次性验证码登录。Access 配置完成后，手机打开 `https://codex.dogbot.cc.cd`，再输入 Mac 页面显示的一次性配对码。
 
+## Android 安装包（个人使用）
+
+项目包含一个基于现有 PWA 的 Trusted Web Activity（TWA）Android 工程。它不会在手机上运行 Codex，打开 App 后仍由电脑上的 Codex Pocket 服务工作；电脑和 Cloudflare Tunnel 在线时即可使用。
+
+首次构建需要 Java 17、Android SDK 和 Bubblewrap。Bubblewrap 初始化时同意 Android SDK 条款后，在项目根目录执行：
+
+```bash
+JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew assembleRelease
+npx --yes @bubblewrap/cli build
+```
+
+签名后的个人安装包会生成在 `app-release-signed.apk`。签名密钥保存在用户目录的 `~/.bubblewrap/codexpocket.keystore`，不要提交到 GitHub；更换签名密钥后需要同步更新 `public/.well-known/assetlinks.json` 中的 SHA-256 指纹。
+
 ## 连接管理
 
 在 Mac 本地页面顶部点击“连接管理”，可以查看每个已授权设备的设备类型、在线状态、创建时间和最近活动时间。电脑端可以单独撤销某个设备，也可以“撤销其他全部”；当前管理页面所在的 Mac 会话默认不会被误撤销。

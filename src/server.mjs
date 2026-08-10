@@ -86,6 +86,47 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, appServer: bridge.status, host: os.hostname() });
 });
 
+app.get("/api/setup/status", requireLocalAdmin, asyncHandler(async (req, res) => {
+  const [envFile, tunnelConfig, tunnelCredentials, cloudflared, serverAgent, tunnelAgent] = await Promise.all([
+    fileExists(ENV_FILE),
+    fileExists(path.join(os.homedir(), ".cloudflared", "config.yml")),
+    hasTunnelCredentials(),
+    commandAvailable("cloudflared", ["--version"]),
+    launchAgentLoaded("com.codex-pocket.server"),
+    launchAgentLoaded("com.codex-pocket.cloudflared"),
+  ]);
+  res.json({
+    platform: process.platform,
+    host: os.hostname(),
+    localUrl: localAddress(HOST, PORT),
+    publicUrl: publicUrl.toString(),
+    envFile,
+    cloudflared,
+    tunnelConfig,
+    tunnelCredentials,
+    serverAgent,
+    tunnelAgent,
+    appServer: bridge.status,
+    projects: projects.map(publicProject),
+  });
+}));
+
+app.get("/setup", (req, res) => {
+  if (!isLocalAdminRequest(req)) {
+    res.status(404).end();
+    return;
+  }
+  res.sendFile(path.join(PUBLIC_DIR, "setup.html"));
+});
+
+app.get("/setup.html", (req, res) => {
+  if (!isLocalAdminRequest(req)) {
+    res.status(404).end();
+    return;
+  }
+  res.sendFile(path.join(PUBLIC_DIR, "setup.html"));
+});
+
 app.get("/api/bootstrap", asyncHandler(async (req, res) => {
   if (!isLocalAdminRequest(req)) {
     res.status(403).json({ error: "This pairing QR code is only available from the local computer." });
@@ -476,6 +517,7 @@ app.use(express.static(PUBLIC_DIR, {
   etag: false,
   maxAge: 0,
   index: "index.html",
+  dotfiles: "allow",
 }));
 
 app.use((error, req, res, next) => {
@@ -1301,6 +1343,43 @@ function describeUserAgent(userAgent) {
 function isAllowedBrowserOrigin(req) {
   const origin = req.headers.origin;
   return typeof origin === "string" && allowedOrigins.has(origin);
+}
+
+async function fileExists(file) {
+  try {
+    await fs.access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function hasTunnelCredentials() {
+  try {
+    const entries = await fs.readdir(path.join(os.homedir(), ".cloudflared"));
+    return entries.some((entry) => entry.endsWith(".json"));
+  } catch {
+    return false;
+  }
+}
+
+async function commandAvailable(command, args = ["--version"]) {
+  try {
+    await execFileAsync(command, args, { timeout: 4_000, windowsHide: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function launchAgentLoaded(label) {
+  if (process.platform !== "darwin" || typeof process.getuid !== "function") return false;
+  try {
+    await execFileAsync("launchctl", ["print", `gui/${process.getuid()}/${label}`], { timeout: 3_000 });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isLocalAdminRequest(req) {

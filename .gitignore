@@ -2,3 +2,15 @@ node_modules/
 .codex-pocket/
 .env
 *.log
+local.properties
+.gradle/
+build/
+app/build/
+app-release*.apk
+app-release*.aab
+app-release*.idsig
+*.keystore
+*.jks
+twa-manifest.json
+manifest-checksum.txt
+store_icon.png
