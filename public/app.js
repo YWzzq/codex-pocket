@@ -160,12 +160,14 @@ el.revokeAllButton.addEventListener("click", () => void revokeAllSessions());
 el.newTaskButton.addEventListener("click", () => {
   state.selectedId = null;
   renderWorkspace();
+  scrollWorkspaceToTop();
   el.promptInput.focus();
 });
 
 el.backButton.addEventListener("click", () => {
   state.selectedId = null;
   renderWorkspace();
+  scrollWorkspaceToTop();
 });
 
 el.interruptButton.addEventListener("click", async () => {
@@ -519,6 +521,7 @@ async function loadWorkspace() {
   el.pairView.hidden = true;
   el.workspaceView.hidden = false;
   renderWorkspace();
+  scrollWorkspaceToTop();
   connectSocket();
 }
 
@@ -547,6 +550,10 @@ function renderWorkspace() {
   renderComposer();
   renderApproval();
   renderNotificationButton();
+}
+
+function scrollWorkspaceToTop() {
+  window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
 }
 
 function initializeModelSettings() {
@@ -787,6 +794,7 @@ async function forkThread(threadId, lastTurnId) {
     state.selectedId = result.thread.id;
     state.timelines.set(result.thread.id, normalizeTimeline(result.history));
     renderWorkspace();
+    scrollWorkspaceToTop();
     showToast("已创建分支，可以继续输入");
   } catch (error) {
     showToast(error.message);
@@ -825,6 +833,7 @@ function renderApproval() {
 async function selectThread(threadId) {
   state.selectedId = threadId;
   renderWorkspace();
+  scrollWorkspaceToTop();
   try {
     const data = await request(`/api/threads/${encodeURIComponent(threadId)}`);
     if (state.selectedId !== threadId) return;

@@ -500,10 +500,17 @@ select {
 }
 
 .detail-topline {
+  position: sticky;
+  z-index: 4;
+  top: env(safe-area-inset-top);
   display: flex;
   align-items: center;
   justify-content: space-between;
   min-height: 52px;
+  margin: 0 -18px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
 }
 
 .detail-actions {
@@ -1059,6 +1066,13 @@ textarea {
 
   .task-row .status-label {
     display: none;
+  }
+
+  .detail-topline {
+    margin-right: -14px;
+    margin-left: -14px;
+    padding-right: 14px;
+    padding-left: 14px;
   }
 }
 
