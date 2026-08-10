@@ -29,6 +29,7 @@
           <label class="field-label" for="pairCode">配对码</label>
           <input id="pairCode" class="pair-code" autocomplete="one-time-code" autocapitalize="characters" maxlength="11" placeholder="ABCDE-12345" />
           <button class="button primary" type="submit">连接</button>
+          <button id="scanPairButton" class="button secondary scan-pair-button" type="button" hidden>扫一扫连接</button>
           <p id="pairError" class="form-error" role="alert"></p>
         </form>
         <section id="localPairing" class="local-pairing" hidden>

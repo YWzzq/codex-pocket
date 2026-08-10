@@ -2,6 +2,10 @@ function nativeNotificationPlugin() {
   return globalThis.Capacitor?.Plugins?.LocalNotifications ?? null;
 }
 
+function nativeBarcodeScannerPlugin() {
+  return globalThis.Capacitor?.Plugins?.CapacitorBarcodeScanner ?? null;
+}
+
 function initialNotificationPermission() {
   if (nativeNotificationPlugin()) return "prompt";
   return typeof Notification === "undefined" ? "unsupported" : Notification.permission;
@@ -48,6 +52,7 @@ const el = {
   pairHint: document.querySelector("#pairHint"),
   pairForm: document.querySelector("#pairForm"),
   pairCode: document.querySelector("#pairCode"),
+  scanPairButton: document.querySelector("#scanPairButton"),
   pairError: document.querySelector("#pairError"),
   localPairing: document.querySelector("#localPairing"),
   pairQr: document.querySelector("#pairQr"),
@@ -165,6 +170,7 @@ if ("serviceWorker" in navigator) {
 el.pairButton.hidden = !isLocalBrowser();
 el.projectButton.hidden = !isLocalBrowser();
 el.sessionButton.hidden = el.pairButton.hidden;
+el.scanPairButton.hidden = !nativeBarcodeScannerPlugin();
 
 el.pairForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -176,6 +182,8 @@ el.pairForm.addEventListener("submit", async (event) => {
 el.pairCode.addEventListener("input", () => {
   el.pairCode.value = el.pairCode.value.toUpperCase().replace(/[^A-Z0-9-]/g, "");
 });
+
+el.scanPairButton.addEventListener("click", () => void scanPairingQr());
 
 el.modelSelect.addEventListener("change", () => {
   state.model = el.modelSelect.value;
@@ -408,6 +416,39 @@ async function pair(payload, loadAfter = true) {
     el.pairError.textContent = error.message;
     throw error;
   }
+}
+
+async function scanPairingQr() {
+  const scanner = nativeBarcodeScannerPlugin();
+  if (!scanner) return;
+  el.scanPairButton.disabled = true;
+  el.pairError.textContent = "";
+  try {
+    const result = await scanner.scanBarcode({
+      hint: 0,
+      scanInstructions: "将电脑端显示的配对二维码放入框内",
+      scanText: "取消",
+      cancelButtonAccessibilityLabel: "取消扫码",
+      torchButtonOnAccessibilityLabel: "关闭手电筒",
+      torchButtonOffAccessibilityLabel: "打开手电筒",
+      android: { scanningLibrary: "zxing" },
+    });
+    const value = String(result?.ScanResult ?? "").trim();
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || !url.searchParams.get("pair")) {
+      throw new Error("请扫描电脑端生成的 HTTPS 配对二维码。");
+    }
+    window.location.assign(url.toString());
+  } catch (error) {
+    if (!isScanCancelled(error)) el.pairError.textContent = error?.message || "扫码失败，请重试。";
+  } finally {
+    el.scanPairButton.disabled = false;
+  }
+}
+
+function isScanCancelled(error) {
+  const message = String(error?.message ?? error ?? "").toLowerCase();
+  return message.includes("cancel") || message.includes("取消") || message.includes("user_cancelled");
 }
 
 function showPairing(message) {
