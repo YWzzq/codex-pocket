@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#101711" />
+    <title>Codex Pocket · Mac 部署向导</title>
+    <link rel="stylesheet" href="/setup.css" />
+  </head>
+  <body>
+    <main class="setup-shell">
+      <header class="setup-topbar">
+        <div class="brand-lockup"><span class="mark" aria-hidden="true">C</span><span>Codex Pocket</span></div>
+        <a class="text-link" href="/">打开工作区</a>
+      </header>
+
+      <section class="setup-hero">
+        <p class="eyebrow">MAC 部署向导</p>
+        <h1>把这台电脑准备成你的 Codex 主机</h1>
+        <p>自动检查本地环境；需要 Cloudflare 授权或 DNS 操作时，向导会暂停并告诉你下一步。</p>
+        <div class="hero-actions">
+          <button id="refreshButton" class="button secondary" type="button">重新检查</button>
+          <span id="lastChecked" class="muted">尚未检查</span>
+        </div>
+      </section>
+
+      <p id="setupError" class="setup-error" role="alert" hidden></p>
+
+      <section class="setup-grid">
+        <article id="environmentCard" class="setup-card">
+          <div class="card-heading">
+            <div><p class="eyebrow">步骤 1</p><h2>环境检查</h2></div>
+            <span id="environmentStatus" class="step-status pending">检查中</span>
+          </div>
+          <div id="environmentChecks" class="check-list"></div>
+        </article>
+
+        <article id="projectsCard" class="setup-card">
+          <div class="card-heading">
+            <div><p class="eyebrow">步骤 2</p><h2>选择允许的项目</h2></div>
+            <span id="projectsStatus" class="step-status pending">待检查</span>
+          </div>
+          <p class="card-copy">手机只能操作你在这里勾选的 Codex 项目目录。项目目录不会上传到网络。</p>
+          <div id="projectCandidates" class="project-candidates">
+            <p class="muted">点击“发现 Codex 项目”开始读取历史项目。</p>
+          </div>
+          <div class="card-actions">
+            <button id="discoverButton" class="button secondary" type="button">发现 Codex 项目</button>
+            <button id="saveProjectsButton" class="button primary" type="button" disabled>保存选择</button>
+          </div>
+        </article>
+
+        <article id="tunnelCard" class="setup-card">
+          <div class="card-heading">
+            <div><p class="eyebrow">步骤 3</p><h2>Cloudflare Tunnel</h2></div>
+            <span id="tunnelStatus" class="step-status pending">待检查</span>
+          </div>
+          <p class="card-copy">Tunnel 将公网 HTTPS 请求带回本机，不需要开放校园网入站端口。</p>
+          <ol class="instruction-list">
+            <li>确认域名 DNS 已托管到 Cloudflare。</li>
+            <li>确认本机存在 Tunnel 配置和凭据。</li>
+            <li>启动独立的 <code>cloudflared</code> 后台服务。</li>
+          </ol>
+          <p id="publicUrl" class="code-line">公网地址检查中…</p>
+          <p class="manual-note">缺少授权时，请在终端运行 <code>cloudflared tunnel login</code>，完成浏览器授权后再点击重新检查。</p>
+        </article>
+
+        <article id="pairCard" class="setup-card pair-card">
+          <div class="card-heading">
+            <div><p class="eyebrow">步骤 4</p><h2>手机配对</h2></div>
+            <span id="pairStatus" class="step-status pending">待生成</span>
+          </div>
+          <div class="pair-content">
+            <img id="pairQr" class="pair-qr" alt="手机配对二维码" hidden />
+            <div>
+              <p id="pairCode" class="pair-code">点击生成一次性配对码</p>
+              <p id="pairNotice" class="card-copy">配对码有效期为五分钟；首次配对后，手机会获得长期设备授权。</p>
+              <button id="pairButton" class="button primary" type="button">生成配对二维码</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <footer class="setup-footer">
+        <span>本向导只允许在这台 Mac 的本机地址打开。</span>
+        <a class="text-link" href="https://github.com/YWzzq/codex-pocket" target="_blank" rel="noreferrer">查看 GitHub</a>
+      </footer>
+    </main>
+    <script src="/setup.js" defer></script>
+  </body>
+</html>
