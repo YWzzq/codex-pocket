@@ -211,7 +211,7 @@ app.get("/api/threads", requireSession, asyncHandler(async (req, res) => {
 }));
 
 app.get("/api/threads/:threadId", requireSession, asyncHandler(async (req, res) => {
-  const thread = requireOwnedThread(req.params.threadId);
+  const thread = await requireOwnedThreadFresh(req.params.threadId);
   let history = { timeline: [] };
   try {
     await bridge.start();
@@ -264,7 +264,7 @@ app.post("/api/threads", requireSession, asyncHandler(async (req, res) => {
 }));
 
 app.post("/api/threads/:threadId/messages", requireSession, asyncHandler(async (req, res) => {
-  const thread = requireOwnedThread(req.params.threadId);
+  const thread = await requireOwnedThreadFresh(req.params.threadId);
   const prompt = validatePrompt(req.body?.prompt);
   await bridge.start();
   if (!loadedThreads.has(thread.id)) {
@@ -282,7 +282,7 @@ app.post("/api/threads/:threadId/messages", requireSession, asyncHandler(async (
 }));
 
 app.post("/api/threads/:threadId/retry", requireSession, asyncHandler(async (req, res) => {
-  const thread = requireOwnedThread(req.params.threadId);
+  const thread = await requireOwnedThreadFresh(req.params.threadId);
   if (!["failed", "interrupted"].includes(thread.status)) {
     throw threadRetryError("只有失败或已停止的任务可以重试。");
   }
@@ -306,7 +306,7 @@ app.post("/api/threads/:threadId/retry", requireSession, asyncHandler(async (req
 }));
 
 app.post("/api/threads/:threadId/release", requireSession, asyncHandler(async (req, res) => {
-  const thread = requireOwnedThread(req.params.threadId);
+  const thread = await requireOwnedThreadFresh(req.params.threadId);
   const turnId = activeTurns.get(thread.id) ?? thread.activeTurnId;
   if (turnId) {
     const result = await stopThreadTurn(thread, turnId);
@@ -324,7 +324,7 @@ app.post("/api/threads/:threadId/release", requireSession, asyncHandler(async (r
 }));
 
 app.post("/api/threads/:threadId/interrupt", requireSession, asyncHandler(async (req, res) => {
-  const thread = requireOwnedThread(req.params.threadId);
+  const thread = await requireOwnedThreadFresh(req.params.threadId);
   const turnId = activeTurns.get(thread.id) ?? thread.activeTurnId;
   if (!turnId) {
     if (["starting", "running", "approval", "stopping"].includes(thread.status)) {
@@ -932,6 +932,16 @@ function requireOwnedThread(threadId) {
     error.statusCode = 404;
     throw error;
   }
+  return thread;
+}
+
+async function requireOwnedThreadFresh(threadId) {
+  let thread = registry.get(threadId);
+  if (!thread) {
+    await syncCodexThreads().catch(() => undefined);
+    thread = registry.get(threadId);
+  }
+  if (!thread) return requireOwnedThread(threadId);
   return thread;
 }
 
