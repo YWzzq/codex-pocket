@@ -1117,6 +1117,13 @@ textarea {
   margin: 16px 0;
 }
 
+.project-permission-note {
+  margin: 10px 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .project-candidate-toolbar {
   display: flex;
   align-items: center;
@@ -1203,6 +1210,24 @@ textarea {
   gap: 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
+}
+
+.project-root-controls {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.project-policy-select {
+  width: 112px;
+  height: 34px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text);
+  background: var(--surface);
+  font-size: 12px;
 }
 
 .project-root-row code {

@@ -15,6 +15,7 @@ const state = {
   session: null,
   projects: [],
   projectRoots: [],
+  projectPolicies: {},
   projectCandidates: [],
   models: [],
   model: "",
@@ -503,6 +504,7 @@ async function showProjectDialog() {
   try {
     const data = await request("/api/admin/projects");
     state.projectRoots = (data.projects ?? []).map((project) => project.cwd);
+    state.projectPolicies = Object.fromEntries((data.projects ?? []).map((project) => [project.cwd, project.approvalPolicy ?? "on-request"]));
     renderProjectRoots();
     await loadProjectCandidates();
   } catch (error) {
@@ -541,6 +543,7 @@ function renderProjectCandidates() {
     checkbox.addEventListener("change", () => {
       if (checkbox.checked) state.projectRoots.push(candidate.cwd);
       else state.projectRoots = state.projectRoots.filter((root) => root !== candidate.cwd);
+      if (checkbox.checked && !state.projectPolicies[candidate.cwd]) state.projectPolicies[candidate.cwd] = "on-request";
       state.projectRoots = [...new Set(state.projectRoots)];
       renderProjectRoots();
     });
@@ -578,7 +581,27 @@ function renderProjectRoots() {
       state.projectRoots = state.projectRoots.filter((entry) => entry !== root);
       renderProjectRoots();
     });
-    row.append(pathText, remove);
+    const controls = document.createElement("div");
+    controls.className = "project-root-controls";
+    const policy = document.createElement("select");
+    policy.className = "project-policy-select";
+    policy.setAttribute("aria-label", `设置 ${root} 的权限策略`);
+    for (const option of [
+      ["on-request", "需要时询问"],
+      ["on-failure", "失败时询问"],
+      ["never", "自动执行"],
+    ]) {
+      const item = document.createElement("option");
+      item.value = option[0];
+      item.textContent = option[1];
+      policy.append(item);
+    }
+    policy.value = state.projectPolicies[root] ?? "on-request";
+    policy.addEventListener("change", () => {
+      state.projectPolicies[root] = policy.value;
+    });
+    controls.append(policy, remove);
+    row.append(pathText, controls);
     el.projectRootList.append(row);
   }
   if (state.projectRoots.length === 0) {
@@ -594,8 +617,8 @@ function addProjectRoot() {
   const root = el.projectPathInput.value.trim();
   el.projectError.textContent = "";
   if (!root) return;
-  if (!root.startsWith("/")) {
-    el.projectError.textContent = "请输入绝对路径，例如 /Users/你的用户名/项目。";
+  if (!isAbsoluteProjectPath(root)) {
+    el.projectError.textContent = "请输入绝对路径，例如 /Users/你的用户名/项目 或 C:\\Users\\你的用户名\\项目。";
     return;
   }
   if (state.projectRoots.includes(root)) {
@@ -603,8 +626,13 @@ function addProjectRoot() {
     return;
   }
   state.projectRoots.push(root);
+  state.projectPolicies[root] = "on-request";
   el.projectPathInput.value = "";
   renderProjectRoots();
+}
+
+function isAbsoluteProjectPath(value) {
+  return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
 }
 
 async function saveProjectRoots() {
@@ -613,7 +641,7 @@ async function saveProjectRoots() {
     el.saveProjectsButton.disabled = true;
     const data = await request("/api/admin/projects", {
       method: "POST",
-      body: { roots: state.projectRoots },
+      body: { roots: state.projectRoots, approvalPolicies: state.projectPolicies },
     });
     state.projectRoots = (data.projects ?? []).map((project) => project.cwd);
     el.projectDialog.hidden = true;
@@ -713,6 +741,7 @@ async function loadWorkspace() {
   state.session = session;
   state.projects = session.projects ?? [];
   state.projectRoots = state.projects.map((project) => project.cwd);
+  state.projectPolicies = Object.fromEntries(state.projects.map((project) => [project.cwd, project.approvalPolicy ?? "on-request"]));
   state.approvals = session.approvals ?? [];
   const modelData = await request("/api/models").catch(() => ({ models: [] }));
   state.models = modelData.models ?? [];
@@ -732,6 +761,7 @@ function resetToPairing() {
   state.session = null;
   state.projects = [];
   state.projectRoots = [];
+  state.projectPolicies = {};
   state.projectCandidates = [];
   state.models = [];
   state.model = "";
@@ -869,7 +899,7 @@ function renderProjects() {
   for (const project of state.projects) {
     const option = document.createElement("option");
     option.value = project.id;
-    option.textContent = project.name;
+    option.textContent = `${project.name} · ${project.approvalPolicyLabel ?? "需要时询问"}`;
     el.projectSelect.append(option);
   }
   el.projectSelect.value = state.projects.some((project) => project.id === selected) ? selected : state.projects[0]?.id ?? "";

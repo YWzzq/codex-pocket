@@ -23,6 +23,7 @@ const WINDOWS_SERVICE_SCRIPT = path.join(PROJECT_ROOT, "scripts", "windows-servi
 const WINDOWS_TASK_NAME = "Codex Pocket";
 const THREADS_FILE = path.join(RUNTIME_DIR, "threads.json");
 const DEVICES_FILE = path.join(RUNTIME_DIR, "devices.json");
+const PROJECT_SETTINGS_FILE = path.join(RUNTIME_DIR, "project-settings.json");
 const PORT = parsePort(process.env.PORT ?? "8787");
 const HOST = process.env.HOST ?? "127.0.0.1";
 const CODEX_BIN = process.env.CODEX_BIN ?? "codex";
@@ -34,6 +35,8 @@ const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 const execFileAsync = promisify(execFile);
 const MAX_PROMPT_LENGTH = 16_000;
 const MAX_THREADS = 80;
+const DEFAULT_APPROVAL_POLICY = "on-request";
+const APPROVAL_POLICIES = new Set(["on-request", "on-failure", "never"]);
 const LOCAL_ORIGINS = new Set([
   `http://127.0.0.1:${PORT}`,
   `http://localhost:${PORT}`,
@@ -50,6 +53,7 @@ const allowedOrigins = new Set([...LOCAL_ORIGINS, publicOrigin]);
 let allowedRoots = await loadAllowedRoots();
 let projects = buildProjects(allowedRoots);
 let projectById = new Map(projects.map((project) => [project.id, project]));
+let projectSettings = await loadProjectSettings();
 let registry;
 let deviceRegistry;
 
@@ -334,8 +338,11 @@ app.get("/api/admin/project-candidates", requireLocalAdmin, asyncHandler(async (
 
 app.post("/api/admin/projects", requireLocalAdmin, asyncHandler(async (req, res) => {
   const roots = await validateProjectRoots(req.body?.roots);
+  const nextSettings = normalizeProjectSettings(req.body?.approvalPolicies, roots);
   await persistAllowedRoots(roots);
+  await persistProjectSettings(nextSettings);
   applyAllowedRoots(roots);
+  projectSettings = nextSettings;
   res.json({ ok: true, projects: projects.map(publicProject) });
 }));
 
@@ -376,7 +383,7 @@ app.post("/api/threads", requireSession, asyncHandler(async (req, res) => {
   await bridge.start();
   const created = await bridge.request("thread/start", {
     cwd: project.cwd,
-    approvalPolicy: "on-request",
+    approvalPolicy: projectApprovalPolicy(project.cwd),
     sandbox: "workspace-write",
     ...threadStartSettings(settings),
   });
@@ -397,6 +404,7 @@ app.post("/api/threads", requireSession, asyncHandler(async (req, res) => {
     model: settings.model ?? null,
     effort: settings.effort ?? null,
     serviceTier: settings.serviceTier ?? null,
+    approvalPolicy: projectApprovalPolicy(project.cwd),
   };
   loadedThreads.add(thread.id);
   await registry.upsert(thread);
@@ -485,7 +493,7 @@ app.post("/api/threads/:threadId/fork", requireSession, asyncHandler(async (req,
   const result = await bridge.request("thread/fork", {
     threadId: source.id,
     cwd: source.cwd,
-    approvalPolicy: "on-request",
+    approvalPolicy: threadApprovalPolicy(source),
     sandbox: "workspace-write",
     lastTurnId,
     ...threadStartSettings(source),
@@ -506,6 +514,7 @@ app.post("/api/threads/:threadId/fork", requireSession, asyncHandler(async (req,
     model: source.model ?? null,
     effort: source.effort ?? null,
     serviceTier: source.serviceTier ?? null,
+    approvalPolicy: threadApprovalPolicy(source),
     forkedFromId: source.id,
     forkedFromTurnId: lastTurnId,
   };
@@ -710,7 +719,7 @@ async function startTurn(thread, prompt, session) {
     const result = await bridge.request("turn/start", {
       threadId: thread.id,
       cwd: thread.cwd,
-      approvalPolicy: "on-request",
+      approvalPolicy: threadApprovalPolicy(thread),
       input: [{ type: "text", text: prompt, text_elements: [] }],
       sandboxPolicy: workspacePolicy(thread.cwd),
       ...turnStartSettings(thread),
@@ -749,7 +758,7 @@ async function ensureThreadLoaded(thread) {
     await bridge.request("thread/resume", {
       threadId: thread.id,
       cwd: thread.cwd,
-      approvalPolicy: "on-request",
+      approvalPolicy: threadApprovalPolicy(thread),
       sandbox: "workspace-write",
       ...threadStartSettings(thread),
     });
@@ -958,6 +967,25 @@ function turnStartSettings(settings) {
   };
 }
 
+function normalizeApprovalPolicy(value) {
+  return APPROVAL_POLICIES.has(value) ? value : DEFAULT_APPROVAL_POLICY;
+}
+
+function projectApprovalPolicy(cwd) {
+  const resolved = path.resolve(cwd);
+  const exact = projectSettings.get(resolved);
+  if (exact) return normalizeApprovalPolicy(exact.approvalPolicy);
+  const project = projects.find((entry) => {
+    const relative = path.relative(entry.cwd, resolved);
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  });
+  return normalizeApprovalPolicy(project ? projectSettings.get(project.cwd)?.approvalPolicy : undefined);
+}
+
+function threadApprovalPolicy(thread) {
+  return projectApprovalPolicy(thread.cwd);
+}
+
 async function syncCodexThreads() {
   await bridge.start();
   const result = await bridge.request("thread/list", { limit: 100 });
@@ -983,6 +1011,7 @@ async function syncCodexThreads() {
       model: existing?.model ?? (typeof summary.model === "string" ? summary.model : null),
       effort: existing?.effort ?? null,
       serviceTier: existing?.serviceTier ?? null,
+      approvalPolicy: existing?.approvalPolicy ?? projectApprovalPolicy(project.cwd),
       forkedFromId: existing?.forkedFromId ?? null,
       forkedFromTurnId: existing?.forkedFromTurnId ?? null,
     });
@@ -1206,7 +1235,22 @@ async function updateThread(threadId, patch) {
 }
 
 function publicProject(project) {
-  return { id: project.id, name: project.name, cwd: project.cwd };
+  const approvalPolicy = projectApprovalPolicy(project.cwd);
+  return {
+    id: project.id,
+    name: project.name,
+    cwd: project.cwd,
+    approvalPolicy,
+    approvalPolicyLabel: approvalPolicyLabel(approvalPolicy),
+  };
+}
+
+function approvalPolicyLabel(policy) {
+  return {
+    "on-request": "需要时询问",
+    "on-failure": "失败时询问",
+    never: "自动执行",
+  }[normalizeApprovalPolicy(policy)];
 }
 
 function publicThread(thread) {
@@ -1225,6 +1269,8 @@ function publicThread(thread) {
     serviceTier: thread.serviceTier ?? null,
     forkedFromId: thread.forkedFromId ?? null,
     forkedFromTurnId: thread.forkedFromTurnId ?? null,
+    approvalPolicy: threadApprovalPolicy(thread),
+    approvalPolicyLabel: approvalPolicyLabel(threadApprovalPolicy(thread)),
     writer: writer ? { device: writer.device, startedAt: writer.startedAt } : null,
   };
 }
@@ -1753,6 +1799,41 @@ async function loadAllowedRoots() {
     roots.push(resolved);
   }
   return [...new Set(roots)];
+}
+
+async function loadProjectSettings() {
+  await fs.mkdir(RUNTIME_DIR, { recursive: true, mode: 0o700 });
+  try {
+    const raw = JSON.parse(await fs.readFile(PROJECT_SETTINGS_FILE, "utf8"));
+    const settings = new Map();
+    for (const [cwd, value] of Object.entries(raw?.projects ?? {})) {
+      if (typeof cwd !== "string" || !path.isAbsolute(cwd)) continue;
+      settings.set(path.resolve(cwd), { approvalPolicy: normalizeApprovalPolicy(value?.approvalPolicy) });
+    }
+    return settings;
+  } catch (error) {
+    if (error.code !== "ENOENT") console.warn("Unable to load project settings:", error.message);
+    return new Map();
+  }
+}
+
+function normalizeProjectSettings(rawPolicies, roots) {
+  const next = new Map(projectSettings);
+  const policies = rawPolicies && typeof rawPolicies === "object" && !Array.isArray(rawPolicies) ? rawPolicies : {};
+  for (const cwd of roots) {
+    next.set(cwd, { approvalPolicy: normalizeApprovalPolicy(policies[cwd] ?? next.get(cwd)?.approvalPolicy) });
+  }
+  return next;
+}
+
+async function persistProjectSettings(settings) {
+  const projects = Object.fromEntries([...settings.entries()].map(([cwd, value]) => [cwd, {
+    approvalPolicy: normalizeApprovalPolicy(value?.approvalPolicy),
+  }]));
+  const temp = `${PROJECT_SETTINGS_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  await fs.writeFile(temp, JSON.stringify({ projects }, null, 2), { encoding: "utf8", mode: 0o600 });
+  await fs.rename(temp, PROJECT_SETTINGS_FILE);
+  await fs.chmod(PROJECT_SETTINGS_FILE, 0o600);
 }
 
 function buildProjects(roots) {
