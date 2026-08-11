@@ -400,6 +400,7 @@ app.post("/api/threads", requireSession, asyncHandler(async (req, res) => {
   };
   loadedThreads.add(thread.id);
   await registry.upsert(thread);
+  broadcast({ type: "thread_created", thread: publicThread(thread) });
   const turn = await startTurn(thread, prompt, req.session);
   res.status(201).json({ thread: publicThread(registry.get(thread.id)), turnId: turn.id });
 }));

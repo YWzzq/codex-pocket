@@ -1527,6 +1527,11 @@ function handleSocketEvent(event) {
     renderWorkspace();
     return;
   }
+  if (event.type === "thread_created") {
+    upsertThread(event.thread);
+    renderWorkspace();
+    return;
+  }
   if (event.type === "thread_archived") {
     state.threads = state.threads.filter((thread) => thread.id !== event.threadId);
     state.timelines.delete(event.threadId);
