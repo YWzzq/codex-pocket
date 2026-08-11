@@ -42,6 +42,9 @@ if ($nodeVersion -notmatch '^v(\d+)' -or [int]$Matches[1] -lt 22) {
 }
 
 $codexCommand = if ($env:CODEX_BIN) { $env:CODEX_BIN } else { "codex" }
+if ($codexCommand -match '(?i)\b(app-server|daemon)\b') {
+  throw "CODEX_BIN 只能填写 Codex 可执行文件，例如 codex.cmd 或 C:\\path\\to\\codex.exe；不要填写 app-server/daemon 参数。"
+}
 if (-not (Get-Command $codexCommand -ErrorAction SilentlyContinue) -and -not (Test-Path -LiteralPath $codexCommand)) {
   throw "Codex 未找到。请先安装并登录 Windows 版 Codex，或在 .env 中设置 CODEX_BIN=C:\\path\\to\\codex.exe。"
 }

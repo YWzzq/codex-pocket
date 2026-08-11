@@ -2250,13 +2250,25 @@ async function resolveCodexSpawn(binary) {
   const args = ["app-server", "--stdio"];
   if (process.platform !== "win32") return { command: binary, args };
 
+  if (/\b(?:app-server|daemon)\b/i.test(binary)) {
+    throw new Error(
+      "Windows 上 CODEX_BIN 只能填写 Codex 可执行文件（例如 codex.cmd 或完整路径），不要填写 app-server/daemon 参数。"
+    );
+  }
+
   let resolved = binary;
   if (!/[\\/]/.test(binary) && !/\.(?:cmd|bat|exe)$/i.test(binary)) {
     try {
       const result = await execFileAsync("where.exe", [binary], { timeout: 3_000, windowsHide: true });
       resolved = result.stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? binary;
     } catch {
-      resolved = `${binary}.cmd`;
+      const candidates = [
+        process.env.APPDATA ? path.join(process.env.APPDATA, "npm", `${binary}.cmd`) : null,
+        process.env.APPDATA ? path.join(process.env.APPDATA, "npm", `${binary}.exe`) : null,
+        process.env.npm_config_prefix ? path.join(process.env.npm_config_prefix, `${binary}.cmd`) : null,
+        `${binary}.cmd`,
+      ].filter(Boolean);
+      resolved = (await firstExistingPath(candidates)) ?? `${binary}.cmd`;
     }
   }
 
@@ -2265,6 +2277,18 @@ async function resolveCodexSpawn(binary) {
     return { command: process.env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", commandLine] };
   }
   return { command: resolved, args };
+}
+
+async function firstExistingPath(candidates) {
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      // Try the next Windows installation location.
+    }
+  }
+  return null;
 }
 
 function quoteWindowsArg(value) {
